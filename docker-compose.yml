@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  telegram-downloader:
+    image: telegram-course-downloader:latest
+    container_name: telegram_course_pipeline
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - TELERECON_API_ID=${TELERECON_API_ID}
+      - TELERECON_API_HASH=${TELERECON_API_HASH}
+      - TELERECON_PHONE=${TELERECON_PHONE}
+      - RCLONE_PARENT_FOLDER=${RCLONE_PARENT_FOLDER:-gdrive:/COURSES_FOLDER}
+      - TARGET_CHAT=${TARGET_CHAT:-@coursebusters_bot}
+    volumes:
+      # Lưu vết phiên đăng nhập Telegram
+      - ./telegram_media_downloader/pyrogram.session:/app/telegram_media_downloader/pyrogram.session
+      # Lưu file cập nhật trạng thái danh sách khóa học
+      - ./telegram_media_downloader/full_hoahoc.csv:/app/telegram_media_downloader/full_hoahoc.csv
+      # Ghi file nhật ký log
+      - ./telegram_media_downloader/pipeline.log:/app/telegram_media_downloader/pipeline.log
+      # Nạp cấu hình Rclone Google Drive từ máy Host
+      - ~/.config/rclone:/root/.config/rclone
+      # Thư mục tạm xử lý
+      - ./temp_processing:/app/temp_processing
