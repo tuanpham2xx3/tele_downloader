@@ -1,114 +1,86 @@
-# Telegram Chrome profile
+# Telegram Get Files & Automated Course Downloader Pipeline
 
-Mở Telegram Web bằng một profile Chrome tách biệt, lưu cục bộ trong
-`Chrome_Telegram_Profile`. Thư mục profile đã được loại khỏi Git để không commit
-cookie, token, lịch sử hoặc dữ liệu đăng nhập.
+Hệ thống công cụ khép kín dùng để **thu thập tiêu đề/liên kết khóa học Telegram Web** qua Extension Chrome MV3 và **tự động hóa rà quét, tải xuống, giải nén, upload Google Drive qua Rclone & dọn dẹp đĩa** tối ưu cho **Ubuntu Server**.
 
-Chạy từ PowerShell:
+---
 
+## 🛠 Kiến trúc Hệ thống
+
+```
+_GETURL/
+├── telegram-link-collector/     # Extension Chrome MV3 (Thu thập & Đối chiếu tiêu đề)
+│   ├── manifest.json            # Extension v1.6.0
+│   ├── popup.html / popup.js    # Giao diện Popup 3 mục riêng biệt
+│   └── runner.html / runner.js  # Trình tự động mở shortlink Get Files
+├── telegram_media_downloader/   # Module Downloader & Engine Pyrogram/Telethon
+│   ├── course_pipeline.py       # Pipeline tự động 6 bước khép kín
+│   └── full_hoahoc.csv          # Cơ sở dữ liệu danh sách khóa & trạng thái COMPLETED
+├── start-chrome-telegram.ps1    # Script khởi chạy Chrome Profile riêng biệt
+├── start-pipeline.sh            # Script khởi chạy Pipeline trên UBUNTU SERVER
+└── start-pipeline.ps1           # Script khởi chạy Pipeline trên WINDOWS
+```
+
+---
+
+## 🧩 1. Extension Chrome MV3 (`telegram-link-collector`)
+
+Phân chia làm **3 mục chức năng độc lập**:
+1. **QUÉT GROUP CON (LẤY URL)**: Quét link `Get Files` + Tên khóa học từ các kênh/nhóm con.
+2. **QUÉT CHAT BOT (LẤY TÊN KHÓA HỌC)**: Quét tự động danh sách tên khóa học trực tiếp trong Bot (không bị cấm/nạp file), tự động lọc bỏ 100% rác tin nhắn (đuôi `.rar`, `.zip`, dung lượng `MB`, note,...).
+3. **ĐỐI CHIẾU BOT VỚI FILE TXT**: So sánh danh sách khóa thiếu/trùng giữa file TXT gốc và Bot hiện tại.
+
+Khởi chạy Chrome:
 ```powershell
 .\start-chrome-telegram.ps1
 ```
 
-Mở một URL Telegram khác:
+---
 
-```powershell
-.\start-chrome-telegram.ps1 -Url "https://t.me/ten_bot_hoac_tool"
+## 🚀 2. Pipeline Tự Động Hóa 6 Bước (`course_pipeline.py`)
+
+Quy trình tự động hóa tuần tự cho từng khóa học:
+
+```
+[1. Load tin nhắn Bot] ➔ [2. Detect Khóa & Gom File Stream] ➔ [3. Tải từng khóa (Single Queue)]
+                                                                           │
+[6. Xóa đĩa Ubuntu & Lưu CSV] ◄── [5. Rclone Upload Drive] ◄── [4. Giải nén .mp4 & Class_Materials.zip]
 ```
 
-Đóng toàn bộ cửa sổ dùng profile này trước khi chạy lại script nếu Chrome báo
-profile đang được sử dụng.
+1. **Load tin nhắn Bot**: Đọc luồng tin nhắn từ Telegram Bot (`@coursebusters_bot`).
+2. **Detect Khóa & Gom File**: Nhận diện thẻ bài đăng khóa học và gom toàn bộ file đính kèm (`.rar`, `.zip`) đứng sau vào khóa đó.
+3. **Tải từng khóa**: Tải tuần tự từng khóa học vào thư mục tạm `./temp_processing/` để tiết kiệm tối đa đĩa Ubuntu.
+4. **Giải nén & Đóng gói**:
+   * Đưa toàn bộ video **`.mp4` / `.mkv`** ra thư mục upload.
+   * Gom tất cả tài liệu còn lại (PSD, CLIP, PDF, BRUSH...) nén thành **1 file `Class_Materials.zip` duy nhất**.
+5. **Upload Google Drive qua Rclone**:
+   * Kiểm tra và tải lên thư mục cha định sẵn trên Google Drive (`RCLONE_PARENT_FOLDER`).
+6. **Chống trùng 2 lớp, Dọn dẹp & Lưu CSV**:
+   * Tự động kiểm tra file `full_hoahoc.csv` và Rclone `lsf` trước khi tải. Nếu khóa đã tồn tại ➔ Bỏ qua.
+   * Xóa sạch tài nguyên tạm trên đĩa Ubuntu.
+   * Lưu trạng thái `COMPLETED` kèm timestamp vào `full_hoahoc.csv`.
 
-## Telerecon
+---
 
-Telerecon được tích hợp dưới dạng Git submodule và chạy trong môi trường Python
-riêng. Chỉ dùng để nghiên cứu dữ liệu công khai hoặc nội dung bạn có quyền truy
-cập, đồng thời tuân thủ điều khoản của Telegram và pháp luật áp dụng.
+## 🌐 3. Web Log Monitor từ xa (Cổng 5000)
 
-Chuẩn bị lần đầu:
+Khi khởi chạy pipeline trên Ubuntu, hệ thống tự động bật Web Server theo dõi Log thời gian thực:
+* **Địa chỉ truy cập**: `http://<IP_UBUNTU_SERVER>:5000`
+* **Tính năng**:
+  * Theo dõi Live Log 24/7 với highlight màu sắc trực quan (`[SUCCESS]`, `[ERROR]`, `[WARN]`, `[INFO]`).
+  * Nút **📥 Xuất Log (.txt)**: Tải toàn bộ log file về máy tính.
+  * Nút **📊 Tải CSV Status**: Tải trực tiếp file `full_hoahoc.csv` về máy.
 
-```powershell
-git submodule update --init
-.\install-telerecon.ps1
-.\configure-telerecon.ps1
+---
+
+## 🏃 Hướng dẫn Khởi chạy Pipeline
+
+### Trên Ubuntu Server:
+```bash
+chmod +x start-pipeline.sh
+./start-pipeline.sh -r "gdrive:/COURSES_FOLDER" -p 5000
 ```
 
-Lấy API ID và API Hash của chính tài khoản bạn tại `my.telegram.org`. Credential
-được Windows mã hóa vào `.telerecon-credentials.xml` cho user/máy hiện tại và
-không được Git theo dõi. Không chạy `Telerecon\setup.py`, vì script upstream ghi
-credential dạng văn bản thuần vào source tree.
-
-Mở đồng thời Telegram Web và menu Telerecon:
-
+### Trên Windows (để kiểm thử):
 ```powershell
-.\start-get-tool.ps1
+.\start-pipeline.ps1 -RcloneDest "gdrive:/COURSES_FOLDER" -Port 5000
 ```
-
-Chỉ mở Telerecon:
-
-```powershell
-.\start-get-tool.ps1 -SkipTelegram
-```
-
-## Thu thập nút Get Files trong group con
-
-`telegram-link-collector` là extension MV3 cục bộ. Script mở Chrome sẽ tự nạp
-extension này. Nếu profile đang mở từ trước, đóng các cửa sổ của profile
-`Chrome_Telegram_Profile`, sau đó chạy lại:
-
-```powershell
-.\start-chrome-telegram.ps1
-```
-
-Trong Telegram Web:
-
-1. Mở group chính rồi vào đúng group con cần thu thập.
-2. Bấm biểu tượng **Telegram Get Files URL Collector** trên thanh extension.
-3. Chọn **Quét toàn bộ group con**.
-4. Kiểm tra kết quả rồi chọn **Lưu TXT**.
-
-Mỗi dòng TXT gồm tên khóa học in đậm trong tin nhắn, một ký tự tab và URL
-**Get Files** tương ứng. Runner chấp nhận cả định dạng mới này lẫn file cũ chỉ
-có URL. Với định dạng mới, runner hiển thị tên khóa học trong trạng thái, bảng
-nhật ký và cột `course_title` của file CSV.
-Nếu tiêu đề bắt đầu bằng các tag in đậm riêng như `[REPOST]`, `[DUBBED]` hoặc
-`[ENGLISH DUBBED]`, extension ghép tag với toàn bộ dòng tiêu đề kế tiếp thay vì
-coi riêng tag là tên khóa học.
-
-Chế độ thu thập chỉ chạy sau thao tác bấm của người dùng và chỉ quét tab
-Telegram đang mở. Extension không truy cập cookie/token; quyền `tabs` và ba host
-cụ thể chỉ phục vụ runner mô tả bên dưới.
-
-## Mở bot từ danh sách TXT
-
-Sau khi thu thập URL, mở popup extension và chọn **Xử lý danh sách TXT**. Chọn
-file TXT đã lưu, đặt độ trễ và thời gian chờ trang ổn định, rồi bấm **Bắt đầu xử
-lý**. Runner hiển thị mốc giờ thực tế khi mở URL (ví dụ `16:55 8/6/2026`), thời
-gian đã dùng và ghi cả hai vào log. Với từng URL, công cụ sẽ:
-
-1. Mở trang `www.cbusters.com`.
-2. Bấm **Get Files (Alternate)**.
-3. Trên trang `t.me`, bấm **OPEN IN WEB**.
-4. Chờ Telegram Web tải xong, ghi log và đóng tab trung gian.
-
-Runner có nút **Dừng** và xuất log CSV. Nó không bấm **START BOT**, không tải
-file từ bot và không đọc cookie/token. Quyền `tabs` được dùng để quản lý tab tạm;
-host access chỉ giới hạn ở `www.cbusters.com`, `t.me` và `web.telegram.org`.
-Mỗi bước có thời gian chờ hữu hạn; runner chỉ bấm đúng nút **OPEN IN WEB** và thử
-lại nếu trang chưa chuyển. Link lỗi được ghi vào log và hàng đợi tiếp tục chạy.
-
-### Đối chiếu file trong bot
-
-Chức năng này chạy ngay trong popup, giống cách quét URL: mở đúng chat bot trong
-Telegram Web, bấm extension, chọn file TXT gốc rồi chọn **Dò toàn bộ bot hiện
-tại**. Extension cuộn lịch sử của chính tab đang mở, đọc các tiêu đề in đậm và so
-với file gốc. Kết quả gồm **Có**, **Gần giống** và **Thiếu**, có thể xuất thành
-TXT chỉ chứa các khóa **Thiếu**. Mỗi dòng xuất vẫn giữ nguyên định dạng
-`Tên khóa học<TAB>URL`, nên có thể nạp trực tiếp vào runner. Chức năng chỉ đọc
-nội dung đang hiển thị; không bấm bot hoặc tải file.
-
-Đối chiếu cũng kiểm tra tên khóa học bị trùng trong file gốc và trong các tin
-nhắn bot. Tin nhắn được nhận diện theo message ID khi có, hoặc toàn bộ nội dung
-tin nhắn làm fallback, nên quá trình cuộn không đếm lại cùng một tin. Nút **Xuất
-CSV khóa trùng** lưu phạm vi (`FILE GỐC`/`BOT`), số lần, tên khóa học và các URL
-liên quan.
