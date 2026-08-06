@@ -67,6 +67,10 @@ Trong Telegram Web:
 3. Chọn **Quét toàn bộ group con**.
 4. Kiểm tra kết quả rồi chọn **Lưu TXT**.
 
+Mỗi dòng TXT gồm tên khóa học in đậm trong tin nhắn, một ký tự tab và URL
+**Get Files** tương ứng. Runner chấp nhận cả định dạng mới này lẫn file cũ chỉ
+có URL.
+
 Chế độ thu thập chỉ chạy sau thao tác bấm của người dùng và chỉ quét tab
 Telegram đang mở. Extension không truy cập cookie/token; quyền `tabs` và ba host
 cụ thể chỉ phục vụ runner mô tả bên dưới.

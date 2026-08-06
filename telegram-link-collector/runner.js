@@ -18,7 +18,10 @@ let activeAutomationTabId = null;
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function parseUrls(text) {
-  const urls = text.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const urls = text.split(/\r?\n/).map((line) => {
+    const match = line.match(/https:\/\/[^\s]+/i);
+    return match?.[0] || "";
+  }).filter(Boolean);
   return [...new Set(urls)].filter((value) => {
     try {
       const url = new URL(value);

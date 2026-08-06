@@ -6,7 +6,7 @@ const copyButton = document.querySelector("#copy");
 const saveButton = document.querySelector("#save");
 const openRunnerButton = document.querySelector("#openRunner");
 
-let collectedUrls = [];
+let collectedEntries = [];
 
 function showStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -18,11 +18,20 @@ function setBusy(isBusy) {
   scanHistoryButton.disabled = isBusy;
 }
 
-function renderResults(urls) {
-  collectedUrls = [...new Set(urls)].sort();
-  resultsElement.value = collectedUrls.join("\n");
-  copyButton.disabled = collectedUrls.length === 0;
-  saveButton.disabled = collectedUrls.length === 0;
+function renderResults(entries) {
+  const uniqueEntries = new Map();
+  for (const entry of entries) {
+    const existing = uniqueEntries.get(entry.url);
+    if (!existing || (!existing.title && entry.title)) uniqueEntries.set(entry.url, entry);
+  }
+  collectedEntries = [...uniqueEntries.values()].sort((a, b) =>
+    (a.title || a.url).localeCompare(b.title || b.url)
+  );
+  resultsElement.value = collectedEntries.map((entry) =>
+    entry.title ? `${entry.title}\t${entry.url}` : entry.url
+  ).join("\n");
+  copyButton.disabled = collectedEntries.length === 0;
+  saveButton.disabled = collectedEntries.length === 0;
 }
 
 async function runCollector(scanHistory) {
@@ -45,8 +54,8 @@ async function runCollector(scanHistory) {
       throw new Error(result.error);
     }
 
-    renderResults(result.urls);
-    showStatus(`Đã tìm thấy ${result.urls.length} URL duy nhất.`);
+    renderResults(result.entries);
+    showStatus(`Đã tìm thấy ${result.entries.length} khóa học/URL duy nhất.`);
   } catch (error) {
     showStatus(error.message || String(error), true);
   } finally {
@@ -55,7 +64,7 @@ async function runCollector(scanHistory) {
 }
 
 async function collectGetFilesUrls(scanHistory) {
-  const urls = new Set();
+  const entries = new Map();
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
   function collectVisible() {
@@ -65,7 +74,19 @@ async function collectGetFilesUrls(scanHistory) {
         try {
           const url = new URL(anchor.href, location.href);
           if (url.protocol === "http:" || url.protocol === "https:") {
-            urls.add(url.href);
+            const message = anchor.closest(
+              ".bubble, .Message, [data-message-id], [id^='message']"
+            );
+            const boldElements = message ? [...message.querySelectorAll("strong, b, .text-bold")] : [];
+            const titleElement = boldElements.find((element) => {
+              const text = (element.textContent || "").replace(/\s+/g, " ").trim();
+              return text.length > 3 && !text.toLowerCase().includes("get files");
+            });
+            const title = (titleElement?.textContent || "").replace(/\s+/g, " ").trim();
+            const existing = entries.get(url.href);
+            if (!existing || (!existing.title && title)) {
+              entries.set(url.href, { title, url: url.href });
+            }
           }
         } catch {
           // Ignore malformed or non-web URLs.
@@ -123,12 +144,12 @@ async function collectGetFilesUrls(scanHistory) {
 
   collectVisible();
   if (!scanHistory) {
-    return { urls: [...urls] };
+    return { entries: [...entries.values()] };
   }
 
   const scroller = findMessageScroller();
   if (!scroller) {
-    return { urls: [...urls], error: "Không tìm thấy vùng tin nhắn có thể cuộn." };
+    return { entries: [...entries.values()], error: "Không tìm thấy vùng tin nhắn có thể cuộn." };
   }
 
   let unchangedRounds = 0;
@@ -157,26 +178,28 @@ async function collectGetFilesUrls(scanHistory) {
     previousFingerprint = fingerprint;
   }
 
-  return { urls: [...urls] };
+  return { entries: [...entries.values()] };
 }
 
 scanVisibleButton.addEventListener("click", () => runCollector(false));
 scanHistoryButton.addEventListener("click", () => runCollector(true));
 
 copyButton.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(collectedUrls.join("\n"));
-  showStatus(`Đã sao chép ${collectedUrls.length} URL.`);
+  await navigator.clipboard.writeText(resultsElement.value);
+  showStatus(`Đã sao chép ${collectedEntries.length} khóa học/URL.`);
 });
 
 saveButton.addEventListener("click", async () => {
-  const contents = collectedUrls.join("\r\n") + "\r\n";
+  const contents = collectedEntries.map((entry) =>
+    entry.title ? `${entry.title}\t${entry.url}` : entry.url
+  ).join("\r\n") + "\r\n";
   const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(contents)}`;
   await chrome.downloads.download({
     url: dataUrl,
     filename: `telegram-get-files-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
     saveAs: true
   });
-  showStatus(`Đã tạo file chứa ${collectedUrls.length} URL.`);
+  showStatus(`Đã tạo file chứa ${collectedEntries.length} khóa học/URL.`);
 });
 
 openRunnerButton.addEventListener("click", async () => {
