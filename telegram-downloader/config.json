@@ -1,0 +1,8 @@
+{
+  "target_chat": "@coursebusters_bot",
+  "download_dir": "./downloads",
+  "allowed_extensions": [".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02"],
+  "chunk_size_bytes": 1048576,
+  "max_concurrent_downloads": 3,
+  "skip_existing": true
+}
