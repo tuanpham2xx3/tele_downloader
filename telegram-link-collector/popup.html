@@ -3,35 +3,45 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Get Files URLs</title>
+    <title>Telegram Link & Bot Collector</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <main>
       <p class="eyebrow">TELEGRAM WEB</p>
-      <h1>Get Files URLs</h1>
-      <p class="hint">Mở đúng group con, rồi quét các tin nhắn đã tải hoặc toàn bộ lịch sử.</p>
+      <h1>Get Files & Bot Collector</h1>
+      <p class="hint">Chọn chức năng thu thập từ Group Con hoặc Chat Bot.</p>
+
+      <div class="section-title">1. QUÉT GROUP CON (LẤY URL)</div>
       <div class="actions">
         <button id="scanVisible" class="secondary">Quét phần đang hiển thị</button>
         <button id="scanHistory">Quét toàn bộ group con</button>
       </div>
+
+      <div class="section-title">2. QUÉT CHAT BOT (LẤY TÊN KHÓA HỌC)</div>
+      <div class="actions">
+        <button id="scanBotOnly" class="bot-btn">Quét toàn bộ khóa học trong Bot</button>
+      </div>
+
       <p id="status" role="status" aria-live="polite">Sẵn sàng.</p>
-      <textarea id="results" readonly aria-label="Danh sách URL"></textarea>
+      <textarea id="results" readonly aria-label="Danh sách kết quả"></textarea>
       <div class="footer-actions">
         <button id="copy" class="secondary" disabled>Sao chép</button>
         <button id="save" class="secondary" disabled>Lưu TXT</button>
       </div>
+
       <section class="bot-compare">
-        <p class="eyebrow">ĐỐI CHIẾU BOT HIỆN TẠI</p>
-        <p class="hint">Mở đúng chat bot, chọn file TXT gốc rồi quét lịch sử ngay tab này.</p>
+        <p class="eyebrow">3. ĐỐI CHIẾU BOT VỚI FILE TXT</p>
+        <p class="hint">Nạp file TXT gốc để đối chiếu khóa thiếu/trùng trong chat bot hiện tại.</p>
         <input id="sourceFile" type="file" accept=".txt,text/plain">
-        <button id="compareCurrentBot" disabled>Dò toàn bộ bot hiện tại</button>
+        <button id="compareCurrentBot" disabled>Dò & đối chiếu file gốc với Bot</button>
         <button id="saveComparison" class="secondary" disabled>Xuất TXT khóa còn thiếu</button>
         <button id="saveDuplicates" class="secondary" disabled>Xuất CSV khóa trùng</button>
         <p id="compareStatus" class="compare-status" role="status" aria-live="polite">Chưa chọn file gốc.</p>
       </section>
+
       <button id="openRunner" class="runner">Xử lý danh sách TXT</button>
-      <p class="privacy">Chỉ đọc liên kết trong tab hiện tại. Không đọc cookie hoặc token.</p>
+      <p class="privacy">Chỉ đọc tin nhắn trong tab hiện tại. Không đọc cookie hoặc token.</p>
     </main>
     <script src="popup.js"></script>
   </body>

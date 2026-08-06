@@ -357,16 +357,73 @@ async function scanBotCourseTitles() {
   const titles = new Set();
   const sleepInsidePage = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+  function isValidCourseTitle(title) {
+    if (!title || typeof title !== "string") return false;
+    const trimmed = title.trim();
+    if (trimmed.length < 6 || trimmed.length > 300) return false;
+
+    if (/^[\/@]/i.test(trimmed)) return false;
+    if (/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB)\s*·?$/i.test(trimmed)) return false;
+    if (/\.(zip|rar|7z|mp4|mkv|avi|mov|flv|webm|z\d{2}|\d{3}|part\d+\.rar)$/i.test(trimmed)) return false;
+
+    const cleanLine = trimmed.replace(/^[\p{Emoji}\p{Symbol}\p{Punctuation}\s]+/gu, "").trim();
+    if (!cleanLine) return false;
+
+    if (/^(coloso|udemy|domestika|skillshare|coursera|masterclass|wingfox|class101|yongan|modu)(\s*\.|\s*global|\s*us|\s*kr)?$/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^(artist|artist name|audio|subtitles?|course material|course webpage|hashtag|for files|get files|publisher|language|format|size|file size|duration|category|genre|release date|instructor|author|password|pass|link|download|join|channel)\b/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^(note|hi\s|hello|please click|all files delivered|replace the separate|extract each|download|click on)\b/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^(class material|class materials|class files|course files|project files|materials?|materiels?|lesson\s*\d+|part\s*\d+|section\s*\d+)\b/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^\d{1,2}:\d{2}$/.test(trimmed)) return false;
+    if (/^https?:\/\//i.test(trimmed)) return false;
+
+    return true;
+  }
+
+  function extractTitle(message) {
+    if (!message) return "";
+
+    const lines = (message.innerText || "").split(/\n+/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+    const boldTexts = [...message.querySelectorAll("strong, b, .text-bold")]
+      .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
+      .filter((text) => isValidCourseTitle(text));
+
+    for (const boldText of boldTexts) {
+      const index = lines.findIndex((line) => line.includes(boldText));
+      if (index >= 0 && isValidCourseTitle(lines[index])) {
+        return lines[index];
+      }
+    }
+
+    const validLine = lines.find((line) => isValidCourseTitle(line));
+    return validLine || "";
+  }
+
   function collectVisibleTitles() {
-    const messages = document.querySelectorAll(
+    const allCandidates = [...document.querySelectorAll(
       ".bubble, .Message, [data-message-id], [id^='message']"
+    )];
+    const messages = allCandidates.filter(
+      (el) => !el.querySelector(".bubble, .Message, [data-message-id], [id^='message']")
     );
+
     for (const message of messages) {
-      const boldElements = message.querySelectorAll("strong, b, .text-bold");
-      for (const element of boldElements) {
-        const title = (element.textContent || "").replace(/\s+/g, " ").trim();
-        if (title.length < 6 || title.length > 300) continue;
-        if (/^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(title)) continue;
+      const title = extractTitle(message);
+      if (isValidCourseTitle(title)) {
         titles.add(title);
       }
     }
@@ -396,6 +453,7 @@ async function scanBotCourseTitles() {
   for (let round = 0; round < 400 && unchangedRounds < 6; round += 1) {
     collectVisibleTitles();
     scroller.scrollTop = 0;
+    if (typeof scroller.scrollTo === "function") scroller.scrollTo({ top: 0, behavior: "instant" });
     scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
     await sleepInsidePage(800);
     collectVisibleTitles();

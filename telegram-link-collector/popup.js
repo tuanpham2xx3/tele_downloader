@@ -2,6 +2,7 @@ const statusElement = document.querySelector("#status");
 const resultsElement = document.querySelector("#results");
 const scanVisibleButton = document.querySelector("#scanVisible");
 const scanHistoryButton = document.querySelector("#scanHistory");
+const scanBotOnlyButton = document.querySelector("#scanBotOnly");
 const copyButton = document.querySelector("#copy");
 const saveButton = document.querySelector("#save");
 const openRunnerButton = document.querySelector("#openRunner");
@@ -25,6 +26,7 @@ function showStatus(message, isError = false) {
 function setBusy(isBusy) {
   scanVisibleButton.disabled = isBusy;
   scanHistoryButton.disabled = isBusy;
+  if (scanBotOnlyButton) scanBotOnlyButton.disabled = isBusy;
 }
 
 function renderResults(entries) {
@@ -41,6 +43,42 @@ function renderResults(entries) {
   ).join("\n");
   copyButton.disabled = collectedEntries.length === 0;
   saveButton.disabled = collectedEntries.length === 0;
+}
+
+function renderBotResults(titles) {
+  const uniqueTitles = [...new Set(titles)].sort((a, b) => a.localeCompare(b));
+  collectedEntries = uniqueTitles.map((title) => ({ title, url: "" }));
+  resultsElement.value = uniqueTitles.join("\n");
+  copyButton.disabled = collectedEntries.length === 0;
+  saveButton.disabled = collectedEntries.length === 0;
+}
+
+async function runBotCollector() {
+  setBusy(true);
+  showStatus("Đang cuộn và quét toàn bộ khóa học trong Bot…");
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url?.startsWith("https://web.telegram.org/")) {
+      throw new Error("Hãy mở chat bot trong Telegram Web trước.");
+    }
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scanCurrentBotTitles
+    });
+
+    if (result?.error && !result.titles?.length) {
+      throw new Error(result.error);
+    }
+
+    renderBotResults(result?.titles || []);
+    showStatus(`Đã tìm thấy ${(result?.titles || []).length} khóa học trong Bot.`);
+  } catch (error) {
+    showStatus(error.message || String(error), true);
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function runCollector(scanHistory) {
@@ -76,6 +114,23 @@ async function collectGetFilesUrls(scanHistory) {
   const entries = new Map();
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+  function isMetadataOrBrandLine(line) {
+    if (!line) return true;
+    const cleanLine = line.replace(/^[\p{Emoji}\p{Symbol}\p{Punctuation}\s]+/gu, "").trim();
+    if (!cleanLine) return true;
+
+    if (/^(coloso|udemy|domestika|skillshare|coursera|masterclass|wingfox|class101|yongan|modu)(\s*\.|\s*global|\s*us|\s*kr)?$/i.test(cleanLine)) {
+      return true;
+    }
+
+    const isMetaText = /^(artist|artist name|audio|subtitles?|course material|course webpage|hashtag|for files|get files|publisher|language|format|size|file size|duration|category|genre|release date|instructor|author|password|pass|link|download|join|channel)\b/i.test(cleanLine);
+    const isTime = /^\d{1,2}:\d{2}$/.test(line);
+    const isUrl = /^https?:\/\//i.test(line);
+    const isHashtag = /^#\w+/i.test(line);
+
+    return isMetaText || isTime || isUrl || isHashtag;
+  }
+
   function extractCourseTitle(message) {
     if (!message) return "";
     const lines = (message.innerText || "")
@@ -85,15 +140,12 @@ async function collectGetFilesUrls(scanHistory) {
     const boldTexts = [...message.querySelectorAll("strong, b, .text-bold")]
       .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
       .filter(Boolean);
-    const isMetadata = (line) =>
-      /^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(line) ||
-      /^\d{1,2}:\d{2}$/.test(line) ||
-      /^https?:\/\//i.test(line);
     const isTagsOnly = (line) => /^(?:\[[^\]]+\]\s*)+$/i.test(line);
 
     for (const boldText of boldTexts) {
+      if (isMetadataOrBrandLine(boldText)) continue;
       const lineIndex = lines.findIndex((line) => line.includes(boldText));
-      if (lineIndex < 0 || isMetadata(lines[lineIndex])) continue;
+      if (lineIndex < 0 || isMetadataOrBrandLine(lines[lineIndex])) continue;
       const currentLine = lines[lineIndex];
       if (!isTagsOnly(currentLine) && currentLine.length > 5) return currentLine;
 
@@ -103,11 +155,13 @@ async function collectGetFilesUrls(scanHistory) {
         tags.push(lines[nextIndex]);
         nextIndex += 1;
       }
-      while (nextIndex < lines.length && isMetadata(lines[nextIndex])) nextIndex += 1;
-      if (nextIndex < lines.length) return `${tags.join(" ")} ${lines[nextIndex]}`.trim();
+      while (nextIndex < lines.length && isMetadataOrBrandLine(lines[nextIndex])) nextIndex += 1;
+      if (nextIndex < lines.length && !isMetadataOrBrandLine(lines[nextIndex])) {
+        return `${tags.join(" ")} ${lines[nextIndex]}`.trim();
+      }
     }
 
-    return lines.find((line) => line.length > 5 && !isMetadata(line) && !isTagsOnly(line)) || "";
+    return lines.find((line) => line.length > 5 && !isMetadataOrBrandLine(line) && !isTagsOnly(line)) || "";
   }
 
   function collectVisible() {
@@ -308,40 +362,73 @@ async function scanCurrentBotTitles() {
   const seenMessages = new Map();
   const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+  function isValidCourseTitle(title) {
+    if (!title || typeof title !== "string") return false;
+    const trimmed = title.trim();
+    if (trimmed.length < 6 || trimmed.length > 300) return false;
+
+    if (/^[\/@]/i.test(trimmed)) return false;
+    if (/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB)\s*·?$/i.test(trimmed)) return false;
+    if (/\.(zip|rar|7z|mp4|mkv|avi|mov|flv|webm|z\d{2}|\d{3}|part\d+\.rar)$/i.test(trimmed)) return false;
+
+    const cleanLine = trimmed.replace(/^[\p{Emoji}\p{Symbol}\p{Punctuation}\s]+/gu, "").trim();
+    if (!cleanLine) return false;
+
+    if (/^(coloso|udemy|domestika|skillshare|coursera|masterclass|wingfox|class101|yongan|modu)(\s*\.|\s*global|\s*us|\s*kr)?$/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^(artist|artist name|audio|subtitles?|course material|course webpage|hashtag|for files|get files|publisher|language|format|size|file size|duration|category|genre|release date|instructor|author|password|pass|link|download|join|channel)\b/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^(note|hi\s|hello|please click|all files delivered|replace the separate|extract each|download|click on)\b/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^(class material|class materials|class files|course files|project files|materials?|materiels?|lesson\s*\d+|part\s*\d+|section\s*\d+)\b/i.test(cleanLine)) {
+      return false;
+    }
+
+    if (/^\d{1,2}:\d{2}$/.test(trimmed)) return false;
+    if (/^https?:\/\//i.test(trimmed)) return false;
+
+    return true;
+  }
+
   function extractTitle(message) {
+    if (!message) return "";
+
     const lines = (message.innerText || "").split(/\n+/)
-      .map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
     const boldTexts = [...message.querySelectorAll("strong, b, .text-bold")]
       .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-    const isMetadata = (line) =>
-      /^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(line) ||
-      /^\d{1,2}:\d{2}$/.test(line) || /^https?:\/\//i.test(line);
-    const isTagsOnly = (line) => /^(?:\[[^\]]+\]\s*)+$/i.test(line);
+      .filter((text) => isValidCourseTitle(text));
 
     for (const boldText of boldTexts) {
       const index = lines.findIndex((line) => line.includes(boldText));
-      if (index < 0 || isMetadata(lines[index])) continue;
-      if (!isTagsOnly(lines[index]) && lines[index].length > 5) return lines[index];
-      const tags = [lines[index]];
-      let next = index + 1;
-      while (next < lines.length && isTagsOnly(lines[next])) {
-        tags.push(lines[next]);
-        next += 1;
+      if (index >= 0 && isValidCourseTitle(lines[index])) {
+        return lines[index];
       }
-      while (next < lines.length && isMetadata(lines[next])) next += 1;
-      if (next < lines.length) return `${tags.join(" ")} ${lines[next]}`.trim();
     }
-    return "";
+
+    const validLine = lines.find((line) => isValidCourseTitle(line));
+    return validLine || "";
   }
 
   function collectVisible() {
-    const messages = document.querySelectorAll(
+    const allCandidates = [...document.querySelectorAll(
       ".bubble, .Message, [data-message-id], [id^='message']"
+    )];
+    const messages = allCandidates.filter(
+      (el) => !el.querySelector(".bubble, .Message, [data-message-id], [id^='message']")
     );
+
     for (const message of messages) {
       const title = extractTitle(message);
-      if (title.length < 6 || title.length > 300) continue;
+      if (!isValidCourseTitle(title)) continue;
       titles.add(title);
       const messageId = message.getAttribute("data-message-id") ||
         message.getAttribute("data-mid") ||
@@ -395,6 +482,7 @@ async function scanCurrentBotTitles() {
   for (let round = 0; round < 400 && unchangedRounds < 6; round += 1) {
     collectVisible();
     scroller.scrollTop = 0;
+    if (typeof scroller.scrollTo === "function") scroller.scrollTo({ top: 0, behavior: "instant" });
     scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
     await wait(900);
     collectVisible();
@@ -423,23 +511,24 @@ async function scanCurrentBotTitles() {
 
 scanVisibleButton.addEventListener("click", () => runCollector(false));
 scanHistoryButton.addEventListener("click", () => runCollector(true));
+if (scanBotOnlyButton) scanBotOnlyButton.addEventListener("click", runBotCollector);
 
 copyButton.addEventListener("click", async () => {
   await navigator.clipboard.writeText(resultsElement.value);
-  showStatus(`Đã sao chép ${collectedEntries.length} khóa học/URL.`);
+  showStatus(`Đã sao chép ${collectedEntries.length} mục.`);
 });
 
 saveButton.addEventListener("click", async () => {
   const contents = collectedEntries.map((entry) =>
-    entry.title ? `${entry.title}\t${entry.url}` : entry.url
+    entry.url ? (entry.title ? `${entry.title}\t${entry.url}` : entry.url) : entry.title
   ).join("\r\n") + "\r\n";
   const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(contents)}`;
   await chrome.downloads.download({
     url: dataUrl,
-    filename: `telegram-get-files-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+    filename: `telegram-courses-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
     saveAs: true
   });
-  showStatus(`Đã tạo file chứa ${collectedEntries.length} khóa học/URL.`);
+  showStatus(`Đã tạo file chứa ${collectedEntries.length} mục.`);
 });
 
 sourceFileInput.addEventListener("change", async () => {
