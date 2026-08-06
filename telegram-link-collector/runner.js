@@ -144,6 +144,58 @@ async function waitUntilInjectable(tabId, timeoutMs = 15000) {
   throw new Error("Không thể truy cập trang Telegram trung gian.");
 }
 
+async function waitForUrlPrefix(tabId, prefix, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.url?.startsWith(prefix)) return tab;
+    await sleep(250);
+  }
+  throw new Error(`Trang không chuyển tới ${prefix}`);
+}
+
+async function openTelegramWeb(tabId, landingUrl) {
+  let webUrl = "";
+  let clicked = false;
+
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const button = document.querySelector(
+          "a.tgme_action_button_new.tgme_action_web_button[href^='https://web.telegram.org/']"
+        );
+        if (!button) return { clicked: false, href: "" };
+        const href = button.href;
+        button.click();
+        return { clicked: true, href };
+      }
+    });
+    clicked = Boolean(result?.clicked);
+    webUrl = result?.href || "";
+  } catch {
+    // The deterministic t.me -> Telegram Web conversion below is the fallback.
+  }
+
+  webUrl ||= telegramWebUrlFromLanding(landingUrl);
+  if (!webUrl) {
+    throw new Error("Không lấy được URL từ nút OPEN IN WEB.");
+  }
+
+  if (clicked) {
+    try {
+      await waitForUrlPrefix(tabId, "https://web.telegram.org/", 5000);
+      return tabId;
+    } catch {
+      // Use the href read from the same OPEN IN WEB button if its click was blocked.
+    }
+  }
+
+  await chrome.tabs.update(tabId, { url: webUrl, active: true });
+  await waitForUrlPrefix(tabId, "https://web.telegram.org/", 10000);
+  return tabId;
+}
+
 async function findPageAction(tabId, expectedText, timeoutMs = 10000) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -227,15 +279,7 @@ async function processUrl(url) {
   let current = await chrome.tabs.get(workingTabId);
 
   if (!current.url?.startsWith("https://web.telegram.org/")) {
-    try {
-      workingTabId = await followAction(workingTabId, "OPEN IN WEB");
-    } catch (error) {
-      current = await chrome.tabs.get(workingTabId);
-      const fallbackUrl = telegramWebUrlFromLanding(current.url || "");
-      if (!fallbackUrl) throw error;
-      await chrome.tabs.update(workingTabId, { url: fallbackUrl, active: true });
-      await waitForTabComplete(workingTabId);
-    }
+    workingTabId = await openTelegramWeb(workingTabId, current.url || "");
     activeAutomationTabId = workingTabId;
     current = await chrome.tabs.get(workingTabId);
   }
