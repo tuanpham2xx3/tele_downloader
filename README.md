@@ -74,7 +74,9 @@ cụ thể chỉ phục vụ runner mô tả bên dưới.
 ## Mở bot từ danh sách TXT
 
 Sau khi thu thập URL, mở popup extension và chọn **Xử lý danh sách TXT**. Chọn
-file TXT đã lưu, đặt độ trễ, rồi bấm **Bắt đầu xử lý**. Với từng URL, công cụ sẽ:
+file TXT đã lưu, đặt độ trễ và thời gian chờ trang ổn định, rồi bấm **Bắt đầu xử
+lý**. Runner hiển thị thời gian thực đã dùng cho URL hiện tại và ghi tổng thời
+gian của từng URL vào log. Với từng URL, công cụ sẽ:
 
 1. Mở trang `www.cbusters.com`.
 2. Bấm **Get Files (Alternate)**.

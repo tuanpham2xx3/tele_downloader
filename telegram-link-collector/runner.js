@@ -1,5 +1,6 @@
 const fileInput = document.querySelector("#file");
 const delayInput = document.querySelector("#delay");
+const pageWaitInput = document.querySelector("#pageWait");
 const startButton = document.querySelector("#start");
 const stopButton = document.querySelector("#stop");
 const saveLogButton = document.querySelector("#saveLog");
@@ -239,13 +240,15 @@ async function followAction(tabId, label) {
   throw new Error(`Bấm ${label} nhưng trang không chuyển tiếp.`);
 }
 
-async function processUrl(url) {
+async function processUrl(url, pageWaitMs) {
   const tab = await chrome.tabs.create({ url, active: true });
   activeAutomationTabId = tab.id;
   await waitForTabComplete(tab.id);
+  await sleep(pageWaitMs);
 
   let workingTabId = await followAction(tab.id, "Get Files (Alternate)");
   activeAutomationTabId = workingTabId;
+  await sleep(pageWaitMs);
   let current = await chrome.tabs.get(workingTabId);
 
   if (!current.url?.startsWith("https://web.telegram.org/")) {
@@ -280,21 +283,32 @@ startButton.addEventListener("click", async () => {
   stopButton.disabled = false;
   fileInput.disabled = true;
   delayInput.disabled = true;
+  pageWaitInput.disabled = true;
   const delayMs = Math.max(1000, Number(delayInput.value || 2) * 1000);
+  const pageWaitMs = Math.max(500, Number(pageWaitInput.value || 3) * 1000);
 
   for (let index = 0; index < queue.length; index += 1) {
     if (stopRequested) break;
     const url = queue[index];
-    setStatus(`Đang xử lý ${index + 1}/${queue.length}: ${url}`);
+    const startedAt = Date.now();
+    setStatus(`Đang xử lý ${index + 1}/${queue.length} — 0 giây: ${url}`);
+    const elapsedTimer = setInterval(() => {
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      setStatus(`Đang xử lý ${index + 1}/${queue.length} — ${elapsedSeconds} giây: ${url}`);
+    }, 1000);
     try {
-      await processUrl(url);
-      appendLog(index + 1, "Thành công", url, "Đã mở trong Telegram Web");
+      await processUrl(url, pageWaitMs);
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      appendLog(index + 1, "Thành công", url, `Đã mở trong Telegram Web (${elapsedSeconds} giây)`);
     } catch (error) {
-      appendLog(index + 1, "Lỗi", url, error.message || String(error));
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      appendLog(index + 1, "Lỗi", url, `${error.message || String(error)} (${elapsedSeconds} giây)`);
       if (activeAutomationTabId) {
         await chrome.tabs.remove(activeAutomationTabId).catch(() => {});
         activeAutomationTabId = null;
       }
+    } finally {
+      clearInterval(elapsedTimer);
     }
     updateProgress(index + 1);
     if (!stopRequested && index < queue.length - 1) await sleep(delayMs);
@@ -305,6 +319,7 @@ startButton.addEventListener("click", async () => {
   stopButton.disabled = true;
   fileInput.disabled = false;
   delayInput.disabled = false;
+  pageWaitInput.disabled = false;
 });
 
 stopButton.addEventListener("click", async () => {
