@@ -285,7 +285,7 @@ startButton.addEventListener("click", async () => {
   delayInput.disabled = true;
   pageWaitInput.disabled = true;
   const delayMs = Math.max(1000, Number(delayInput.value || 2) * 1000);
-  const pageWaitMs = Math.max(500, Number(pageWaitInput.value || 3) * 1000);
+  const pageWaitMs = Math.max(500, Number(pageWaitInput.value || 10) * 1000);
 
   for (let index = 0; index < queue.length; index += 1) {
     if (stopRequested) break;

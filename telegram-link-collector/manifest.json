@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Telegram Get Files URL Collector",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Collects Get Files links and opens their Telegram bots in Telegram Web.",
   "permissions": ["activeTab", "downloads", "scripting", "tabs"],
   "host_permissions": [
