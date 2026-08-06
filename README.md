@@ -91,6 +91,13 @@ gian đã dùng và ghi cả hai vào log. Với từng URL, công cụ sẽ:
 Runner có nút **Dừng** và xuất log CSV. Nó không bấm **START BOT**, không tải
 file từ bot và không đọc cookie/token. Quyền `tabs` được dùng để quản lý tab tạm;
 host access chỉ giới hạn ở `www.cbusters.com`, `t.me` và `web.telegram.org`.
-Mỗi bước có thời gian chờ hữu hạn; nếu nút **OPEN IN WEB** không phản hồi, runner
-tự chuyển URL `t.me` sang Telegram Web, giữ nguyên tham số bot `start`. Link lỗi
-được ghi vào log và hàng đợi tiếp tục chạy.
+Mỗi bước có thời gian chờ hữu hạn; runner chỉ bấm đúng nút **OPEN IN WEB** và thử
+lại nếu trang chưa chuyển. Link lỗi được ghi vào log và hàng đợi tiếp tục chạy.
+
+### Đối chiếu file trong bot
+
+Sau khi nạp TXT có tên khóa học, mở chat bot trong một tab Telegram Web rồi quay
+lại runner và chọn **Dò tên trong bot**. Extension cuộn lịch sử bot, đọc các tiêu
+đề in đậm và so với file gốc. Kết quả gồm **Có**, **Gần giống** và **Thiếu**, có
+thể xuất thành CSV để kiểm tra. Chức năng này chỉ đọc nội dung đang hiển thị trong
+Telegram Web; không bấm bot hoặc tải file.

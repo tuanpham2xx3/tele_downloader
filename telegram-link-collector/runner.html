@@ -42,6 +42,24 @@
         <p id="status" role="status" aria-live="polite">Chọn file TXT để bắt đầu.</p>
       </section>
 
+      <section class="panel compare-panel">
+        <div>
+          <h2>Đối chiếu khóa học trong bot</h2>
+          <p class="section-hint">Mở chat bot trong một tab Telegram Web, quay lại đây rồi bắt đầu dò.</p>
+        </div>
+        <div class="buttons">
+          <button id="compareBot" class="secondary" disabled>Dò tên trong bot</button>
+          <button id="saveMissing" class="secondary" disabled>Lưu kết quả CSV</button>
+        </div>
+        <p id="compareStatus" role="status" aria-live="polite">Cần file TXT có tên khóa học.</p>
+        <div class="table-wrap compare-results">
+          <table>
+            <thead><tr><th>Trạng thái</th><th>Khóa học trong file gốc</th><th>Tên tìm thấy trong bot</th><th>URL</th></tr></thead>
+            <tbody id="compareLog"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel">
         <h2>Nhật ký</h2>
         <div class="table-wrap">

@@ -98,6 +98,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background: #e2e9ed;
 }
 
+.compare-panel > .buttons { margin: 14px 0; }
+.section-hint { margin: 5px 0 0; color: #60717d; }
+.compare-results { display: none; margin-top: 12px; }
+.compare-results.visible { display: block; }
+.present { color: #18794e; font-weight: 800; }
+.near { color: #9a6700; font-weight: 800; }
+.missing { color: #b42318; font-weight: 800; }
+
 #progressBar {
   width: 0;
   height: 100%;
