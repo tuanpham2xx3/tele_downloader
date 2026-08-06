@@ -111,7 +111,7 @@ h2 { margin: 0 0 12px; font-size: 18px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { border-bottom: 1px solid #e4eaee; padding: 9px; text-align: left; vertical-align: top; }
 th { position: sticky; top: 0; background: white; }
-td:nth-child(4) { max-width: 440px; overflow-wrap: anywhere; }
+td:nth-child(4), td:nth-child(5) { max-width: 360px; overflow-wrap: anywhere; }
 .success { color: #18794e; font-weight: 800; }
 .failed { color: #b42318; font-weight: 800; }
 .privacy { font-size: 12px; }

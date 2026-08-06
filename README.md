@@ -69,7 +69,8 @@ Trong Telegram Web:
 
 Mỗi dòng TXT gồm tên khóa học in đậm trong tin nhắn, một ký tự tab và URL
 **Get Files** tương ứng. Runner chấp nhận cả định dạng mới này lẫn file cũ chỉ
-có URL.
+có URL. Với định dạng mới, runner hiển thị tên khóa học trong trạng thái, bảng
+nhật ký và cột `course_title` của file CSV.
 
 Chế độ thu thập chỉ chạy sau thao tác bấm của người dùng và chỉ quét tab
 Telegram đang mở. Extension không truy cập cookie/token; quyền `tabs` và ba host
