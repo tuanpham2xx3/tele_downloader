@@ -1,3 +1,6 @@
 [submodule "Telerecon"]
 	path = Telerecon
 	url = https://github.com/sockysec/Telerecon.git
+[submodule "telegram_media_downloader"]
+	path = telegram_media_downloader
+	url = https://github.com/tangyoha/telegram_media_downloader.git
