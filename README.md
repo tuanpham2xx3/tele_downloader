@@ -106,3 +106,9 @@ với file gốc. Kết quả gồm **Có**, **Gần giống** và **Thiếu**, 
 TXT chỉ chứa các khóa **Thiếu**. Mỗi dòng xuất vẫn giữ nguyên định dạng
 `Tên khóa học<TAB>URL`, nên có thể nạp trực tiếp vào runner. Chức năng chỉ đọc
 nội dung đang hiển thị; không bấm bot hoặc tải file.
+
+Đối chiếu cũng kiểm tra tên khóa học bị trùng trong file gốc và trong các tin
+nhắn bot. Tin nhắn được nhận diện theo message ID khi có, hoặc toàn bộ nội dung
+tin nhắn làm fallback, nên quá trình cuộn không đếm lại cùng một tin. Nút **Xuất
+CSV khóa trùng** lưu phạm vi (`FILE GỐC`/`BOT`), số lần, tên khóa học và các URL
+liên quan.

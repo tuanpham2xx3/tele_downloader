@@ -8,11 +8,14 @@ const openRunnerButton = document.querySelector("#openRunner");
 const sourceFileInput = document.querySelector("#sourceFile");
 const compareCurrentBotButton = document.querySelector("#compareCurrentBot");
 const saveComparisonButton = document.querySelector("#saveComparison");
+const saveDuplicatesButton = document.querySelector("#saveDuplicates");
 const compareStatusElement = document.querySelector("#compareStatus");
 
 let collectedEntries = [];
 let sourceEntries = [];
 let comparisonEntries = [];
+let sourceDuplicateGroups = [];
+let duplicateEntries = [];
 
 function showStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -244,6 +247,17 @@ function normalizeCourseTitle(value) {
     .replace(/\s+/g, " ");
 }
 
+function findSourceDuplicateGroups(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const key = normalizeCourseTitle(entry.title);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
 function diceScore(first, second) {
   if (first === second) return 1;
   if (first.length < 2 || second.length < 2) return 0;
@@ -291,6 +305,7 @@ function compareTitles(botTitles) {
 
 async function scanCurrentBotTitles() {
   const titles = new Set();
+  const seenMessages = new Map();
   const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
   function extractTitle(message) {
@@ -326,7 +341,15 @@ async function scanCurrentBotTitles() {
     );
     for (const message of messages) {
       const title = extractTitle(message);
-      if (title.length >= 6 && title.length <= 300) titles.add(title);
+      if (title.length < 6 || title.length > 300) continue;
+      titles.add(title);
+      const messageId = message.getAttribute("data-message-id") ||
+        message.getAttribute("data-mid") ||
+        message.getAttribute("data-id") ||
+        message.id;
+      const fullText = (message.innerText || "").replace(/\s+/g, " ").trim();
+      const messageKey = messageId ? `id:${messageId}` : `text:${fullText}`;
+      seenMessages.set(messageKey, title);
     }
   }
 
@@ -365,7 +388,7 @@ async function scanCurrentBotTitles() {
 
   collectVisible();
   const scroller = findMessageScroller();
-  if (!scroller) return { titles: [...titles], error: "Không tìm thấy vùng tin nhắn có thể cuộn." };
+  if (!scroller) return { titles: [...titles], duplicates: [], error: "Không tìm thấy vùng tin nhắn có thể cuộn." };
 
   let unchangedRounds = 0;
   let previousFingerprint = "";
@@ -386,7 +409,16 @@ async function scanCurrentBotTitles() {
     else unchangedRounds = 0;
     previousFingerprint = fingerprint;
   }
-  return { titles: [...titles] };
+  const titleCounts = new Map();
+  for (const title of seenMessages.values()) {
+    const key = title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+    const current = titleCounts.get(key) || { title, count: 0 };
+    current.count += 1;
+    titleCounts.set(key, current);
+  }
+  const duplicates = [...titleCounts.values()].filter((entry) => entry.count > 1);
+  return { titles: [...titles], duplicates };
 }
 
 scanVisibleButton.addEventListener("click", () => runCollector(false));
@@ -413,17 +445,21 @@ saveButton.addEventListener("click", async () => {
 sourceFileInput.addEventListener("change", async () => {
   const file = sourceFileInput.files?.[0];
   sourceEntries = file ? parseSourceEntries(await file.text()) : [];
+  sourceDuplicateGroups = findSourceDuplicateGroups(sourceEntries);
   comparisonEntries = [];
+  duplicateEntries = [];
   compareCurrentBotButton.disabled = sourceEntries.length === 0;
   saveComparisonButton.disabled = true;
+  saveDuplicatesButton.disabled = true;
   compareStatusElement.textContent = sourceEntries.length
-    ? `Đã nạp ${sourceEntries.length} khóa học. Mở đúng bot rồi bấm dò.`
+    ? `Đã nạp ${sourceEntries.length} khóa học; ${sourceDuplicateGroups.length} tên trùng trong file gốc. Mở đúng bot rồi bấm dò.`
     : "File không có dòng Tên khóa học + URL hợp lệ.";
 });
 
 compareCurrentBotButton.addEventListener("click", async () => {
   compareCurrentBotButton.disabled = true;
   saveComparisonButton.disabled = true;
+  saveDuplicatesButton.disabled = true;
   compareStatusElement.textContent = "Đang cuộn và dò toàn bộ bot hiện tại…";
 
   try {
@@ -438,6 +474,20 @@ compareCurrentBotButton.addEventListener("click", async () => {
     if (result?.error && !result.titles?.length) throw new Error(result.error);
 
     comparisonEntries = compareTitles(result?.titles || []);
+    duplicateEntries = [
+      ...sourceDuplicateGroups.map((group) => ({
+        scope: "FILE GỐC",
+        title: group[0].title,
+        count: group.length,
+        urls: group.map((entry) => entry.url)
+      })),
+      ...(result?.duplicates || []).map((entry) => ({
+        scope: "BOT",
+        title: entry.title,
+        count: entry.count,
+        urls: []
+      }))
+    ];
     const present = comparisonEntries.filter((entry) => entry.status === "Có").length;
     const near = comparisonEntries.filter((entry) => entry.status === "Gần giống").length;
     const missingEntries = comparisonEntries.filter((entry) => entry.status === "Thiếu");
@@ -445,12 +495,17 @@ compareCurrentBotButton.addEventListener("click", async () => {
       ...missingEntries.map((entry) => `[THIẾU]\t${entry.sourceTitle}\t${entry.url}`),
       ...comparisonEntries.filter((entry) => entry.status === "Gần giống").map((entry) =>
         `[GẦN GIỐNG]\t${entry.sourceTitle}\t=> ${entry.matchedTitle}\t${entry.url}`
+      ),
+      ...duplicateEntries.map((entry) =>
+        `[TRÙNG ${entry.scope} x${entry.count}]\t${entry.title}${entry.urls.length ? `\t${entry.urls.join(" | ")}` : ""}`
       )
     ].join("\n");
     copyButton.disabled = !resultsElement.value;
     saveButton.disabled = true;
-    compareStatusElement.textContent = `Đã dò ${result?.titles?.length || 0} tên: ${present} có, ${near} gần giống, ${missingEntries.length} thiếu.`;
+    const botDuplicateCount = (result?.duplicates || []).length;
+    compareStatusElement.textContent = `Đã dò ${result?.titles?.length || 0} tên: ${present} có, ${near} gần giống, ${missingEntries.length} thiếu; ${sourceDuplicateGroups.length} trùng file gốc, ${botDuplicateCount} trùng trong bot.`;
     saveComparisonButton.disabled = missingEntries.length === 0;
+    saveDuplicatesButton.disabled = duplicateEntries.length === 0;
   } catch (error) {
     compareStatusElement.textContent = error.message || String(error);
   } finally {
@@ -467,6 +522,26 @@ saveComparisonButton.addEventListener("click", async () => {
   await chrome.downloads.download({
     url: `data:text/plain;charset=utf-8,${encodeURIComponent(contents)}`,
     filename: `telegram-missing-courses-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+    saveAs: true
+  });
+});
+
+saveDuplicatesButton.addEventListener("click", async () => {
+  if (!duplicateEntries.length) return;
+  const escapeCsv = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const rows = [
+    ["scope", "duplicate_count", "course_title", "urls"],
+    ...duplicateEntries.map((entry) => [
+      entry.scope,
+      entry.count,
+      entry.title,
+      entry.urls.join(" | ")
+    ])
+  ];
+  const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n") + "\r\n";
+  await chrome.downloads.download({
+    url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`,
+    filename: `telegram-duplicate-courses-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
     saveAs: true
   });
 });
