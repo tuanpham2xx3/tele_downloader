@@ -21,6 +21,14 @@
         <button id="copy" class="secondary" disabled>Sao chép</button>
         <button id="save" class="secondary" disabled>Lưu TXT</button>
       </div>
+      <section class="bot-compare">
+        <p class="eyebrow">ĐỐI CHIẾU BOT HIỆN TẠI</p>
+        <p class="hint">Mở đúng chat bot, chọn file TXT gốc rồi quét lịch sử ngay tab này.</p>
+        <input id="sourceFile" type="file" accept=".txt,text/plain">
+        <button id="compareCurrentBot" disabled>Dò toàn bộ bot hiện tại</button>
+        <button id="saveComparison" class="secondary" disabled>Lưu đối chiếu CSV</button>
+        <p id="compareStatus" class="compare-status" role="status" aria-live="polite">Chưa chọn file gốc.</p>
+      </section>
       <button id="openRunner" class="runner">Xử lý danh sách TXT</button>
       <p class="privacy">Chỉ đọc liên kết trong tab hiện tại. Không đọc cookie hoặc token.</p>
     </main>

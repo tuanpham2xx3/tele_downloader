@@ -98,6 +98,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background: #e2e9ed;
 }
 
+.compare-panel { display: none; }
 .compare-panel > .buttons { margin: 14px 0; }
 .section-hint { margin: 5px 0 0; color: #60717d; }
 .compare-results { display: none; margin-top: 12px; }

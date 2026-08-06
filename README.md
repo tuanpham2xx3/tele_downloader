@@ -96,8 +96,8 @@ lại nếu trang chưa chuyển. Link lỗi được ghi vào log và hàng đ�
 
 ### Đối chiếu file trong bot
 
-Sau khi nạp TXT có tên khóa học, mở chat bot trong một tab Telegram Web rồi quay
-lại runner và chọn **Dò tên trong bot**. Extension cuộn lịch sử bot, đọc các tiêu
-đề in đậm và so với file gốc. Kết quả gồm **Có**, **Gần giống** và **Thiếu**, có
-thể xuất thành CSV để kiểm tra. Chức năng này chỉ đọc nội dung đang hiển thị trong
-Telegram Web; không bấm bot hoặc tải file.
+Chức năng này chạy ngay trong popup, giống cách quét URL: mở đúng chat bot trong
+Telegram Web, bấm extension, chọn file TXT gốc rồi chọn **Dò toàn bộ bot hiện
+tại**. Extension cuộn lịch sử của chính tab đang mở, đọc các tiêu đề in đậm và so
+với file gốc. Kết quả gồm **Có**, **Gần giống** và **Thiếu**, có thể xuất thành
+CSV. Chức năng chỉ đọc nội dung đang hiển thị; không bấm bot hoặc tải file.

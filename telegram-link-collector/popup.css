@@ -98,3 +98,32 @@ textarea {
   color: #fff;
   background: #17212b;
 }
+
+.bot-compare {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+  border-top: 1px solid #d7e0e5;
+  padding-top: 16px;
+}
+
+.bot-compare .hint,
+.bot-compare .eyebrow,
+.compare-status {
+  margin: 0;
+}
+
+.bot-compare input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #cad5dc;
+  border-radius: 10px;
+  padding: 9px;
+  font: inherit;
+}
+
+.compare-status {
+  color: #62727f;
+  font-size: 12px;
+  line-height: 1.4;
+}
