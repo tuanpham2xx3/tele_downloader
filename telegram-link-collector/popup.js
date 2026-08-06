@@ -399,7 +399,7 @@ compareCurrentBotButton.addEventListener("click", async () => {
     copyButton.disabled = !resultsElement.value;
     saveButton.disabled = true;
     compareStatusElement.textContent = `Đã dò ${result?.titles?.length || 0} tên: ${present} có, ${near} gần giống, ${missingEntries.length} thiếu.`;
-    saveComparisonButton.disabled = false;
+    saveComparisonButton.disabled = missingEntries.length === 0;
   } catch (error) {
     compareStatusElement.textContent = error.message || String(error);
   } finally {
@@ -408,21 +408,14 @@ compareCurrentBotButton.addEventListener("click", async () => {
 });
 
 saveComparisonButton.addEventListener("click", async () => {
-  const escapeCsv = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  const rows = [
-    ["status", "source_course_title", "matched_bot_title", "similarity", "url"],
-    ...comparisonEntries.map((entry) => [
-      entry.status,
-      entry.sourceTitle,
-      entry.matchedTitle,
-      entry.score.toFixed(3),
-      entry.url
-    ])
-  ];
-  const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n") + "\r\n";
+  const missingEntries = comparisonEntries.filter((entry) => entry.status === "Thiếu");
+  if (!missingEntries.length) return;
+  const contents = missingEntries.map((entry) =>
+    `${entry.sourceTitle}\t${entry.url}`
+  ).join("\r\n") + "\r\n";
   await chrome.downloads.download({
-    url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`,
-    filename: `telegram-course-comparison-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
+    url: `data:text/plain;charset=utf-8,${encodeURIComponent(contents)}`,
+    filename: `telegram-missing-courses-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
     saveAs: true
   });
 });

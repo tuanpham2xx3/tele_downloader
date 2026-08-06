@@ -100,4 +100,6 @@ Chức năng này chạy ngay trong popup, giống cách quét URL: mở đúng 
 Telegram Web, bấm extension, chọn file TXT gốc rồi chọn **Dò toàn bộ bot hiện
 tại**. Extension cuộn lịch sử của chính tab đang mở, đọc các tiêu đề in đậm và so
 với file gốc. Kết quả gồm **Có**, **Gần giống** và **Thiếu**, có thể xuất thành
-CSV. Chức năng chỉ đọc nội dung đang hiển thị; không bấm bot hoặc tải file.
+TXT chỉ chứa các khóa **Thiếu**. Mỗi dòng xuất vẫn giữ nguyên định dạng
+`Tên khóa học<TAB>URL`, nên có thể nạp trực tiếp vào runner. Chức năng chỉ đọc
+nội dung đang hiển thị; không bấm bot hoặc tải file.
