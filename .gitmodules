@@ -1,0 +1,3 @@
+[submodule "Telerecon"]
+	path = Telerecon
+	url = https://github.com/sockysec/Telerecon.git

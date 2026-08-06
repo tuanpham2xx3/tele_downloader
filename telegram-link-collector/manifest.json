@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Telegram Get Files URL Collector",
+  "version": "1.0.0",
+  "description": "Collects visible Get Files links from the currently open Telegram Web chat.",
+  "permissions": ["activeTab", "downloads", "scripting"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Collect Get Files URLs"
+  }
+}

@@ -1,2 +1,8 @@
 # Chrome profile contains local sessions and private browsing data.
 Chrome_Telegram_Profile/
+
+# Local Python environment and encrypted Telegram credentials.
+.venv/
+.telerecon-credentials.xml
+__pycache__/
+*.pyc

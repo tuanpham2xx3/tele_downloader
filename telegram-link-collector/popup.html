@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Get Files URLs</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">TELEGRAM WEB</p>
+      <h1>Get Files URLs</h1>
+      <p class="hint">Mở đúng group con, rồi quét các tin nhắn đã tải hoặc toàn bộ lịch sử.</p>
+      <div class="actions">
+        <button id="scanVisible" class="secondary">Quét phần đang hiển thị</button>
+        <button id="scanHistory">Quét toàn bộ group con</button>
+      </div>
+      <p id="status" role="status" aria-live="polite">Sẵn sàng.</p>
+      <textarea id="results" readonly aria-label="Danh sách URL"></textarea>
+      <div class="footer-actions">
+        <button id="copy" class="secondary" disabled>Sao chép</button>
+        <button id="save" class="secondary" disabled>Lưu TXT</button>
+      </div>
+      <p class="privacy">Chỉ đọc liên kết trong tab hiện tại. Không đọc cookie hoặc token.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
