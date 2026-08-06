@@ -73,6 +73,40 @@ async function collectGetFilesUrls(scanHistory) {
   const entries = new Map();
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+  function extractCourseTitle(message) {
+    if (!message) return "";
+    const lines = (message.innerText || "")
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const boldTexts = [...message.querySelectorAll("strong, b, .text-bold")]
+      .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const isMetadata = (line) =>
+      /^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(line) ||
+      /^\d{1,2}:\d{2}$/.test(line) ||
+      /^https?:\/\//i.test(line);
+    const isTagsOnly = (line) => /^(?:\[[^\]]+\]\s*)+$/i.test(line);
+
+    for (const boldText of boldTexts) {
+      const lineIndex = lines.findIndex((line) => line.includes(boldText));
+      if (lineIndex < 0 || isMetadata(lines[lineIndex])) continue;
+      const currentLine = lines[lineIndex];
+      if (!isTagsOnly(currentLine) && currentLine.length > 5) return currentLine;
+
+      const tags = [currentLine];
+      let nextIndex = lineIndex + 1;
+      while (nextIndex < lines.length && isTagsOnly(lines[nextIndex])) {
+        tags.push(lines[nextIndex]);
+        nextIndex += 1;
+      }
+      while (nextIndex < lines.length && isMetadata(lines[nextIndex])) nextIndex += 1;
+      if (nextIndex < lines.length) return `${tags.join(" ")} ${lines[nextIndex]}`.trim();
+    }
+
+    return lines.find((line) => line.length > 5 && !isMetadata(line) && !isTagsOnly(line)) || "";
+  }
+
   function collectVisible() {
     for (const anchor of document.querySelectorAll("a[href]")) {
       const label = (anchor.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -83,13 +117,7 @@ async function collectGetFilesUrls(scanHistory) {
             const message = anchor.closest(
               ".bubble, .Message, [data-message-id], [id^='message']"
             );
-            const boldElements = message ? [...message.querySelectorAll("strong, b, .text-bold")] : [];
-            const titleElement = boldElements.find((element) => {
-              const text = (element.textContent || "").replace(/\s+/g, " ").trim();
-              return text.length > 5 &&
-                !/^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(text);
-            });
-            const title = (titleElement?.textContent || "").replace(/\s+/g, " ").trim();
+            const title = extractCourseTitle(message);
             const existing = entries.get(url.href);
             if (!existing || (!existing.title && title)) {
               entries.set(url.href, { title, url: url.href });
@@ -211,7 +239,7 @@ function normalizeCourseTitle(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
@@ -265,17 +293,40 @@ async function scanCurrentBotTitles() {
   const titles = new Set();
   const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+  function extractTitle(message) {
+    const lines = (message.innerText || "").split(/\n+/)
+      .map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const boldTexts = [...message.querySelectorAll("strong, b, .text-bold")]
+      .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const isMetadata = (line) =>
+      /^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(line) ||
+      /^\d{1,2}:\d{2}$/.test(line) || /^https?:\/\//i.test(line);
+    const isTagsOnly = (line) => /^(?:\[[^\]]+\]\s*)+$/i.test(line);
+
+    for (const boldText of boldTexts) {
+      const index = lines.findIndex((line) => line.includes(boldText));
+      if (index < 0 || isMetadata(lines[index])) continue;
+      if (!isTagsOnly(lines[index]) && lines[index].length > 5) return lines[index];
+      const tags = [lines[index]];
+      let next = index + 1;
+      while (next < lines.length && isTagsOnly(lines[next])) {
+        tags.push(lines[next]);
+        next += 1;
+      }
+      while (next < lines.length && isMetadata(lines[next])) next += 1;
+      if (next < lines.length) return `${tags.join(" ")} ${lines[next]}`.trim();
+    }
+    return "";
+  }
+
   function collectVisible() {
     const messages = document.querySelectorAll(
       ".bubble, .Message, [data-message-id], [id^='message']"
     );
     for (const message of messages) {
-      for (const element of message.querySelectorAll("strong, b, .text-bold")) {
-        const title = (element.textContent || "").replace(/\s+/g, " ").trim();
-        if (title.length < 6 || title.length > 300) continue;
-        if (/^(artist|audio|subtitles?|course material|course webpage|hashtag|for files|get files)\b/i.test(title)) continue;
-        titles.add(title);
-      }
+      const title = extractTitle(message);
+      if (title.length >= 6 && title.length <= 300) titles.add(title);
     }
   }
 

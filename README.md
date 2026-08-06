@@ -71,6 +71,9 @@ Mỗi dòng TXT gồm tên khóa học in đậm trong tin nhắn, một ký t�
 **Get Files** tương ứng. Runner chấp nhận cả định dạng mới này lẫn file cũ chỉ
 có URL. Với định dạng mới, runner hiển thị tên khóa học trong trạng thái, bảng
 nhật ký và cột `course_title` của file CSV.
+Nếu tiêu đề bắt đầu bằng các tag in đậm riêng như `[REPOST]`, `[DUBBED]` hoặc
+`[ENGLISH DUBBED]`, extension ghép tag với toàn bộ dòng tiêu đề kế tiếp thay vì
+coi riêng tag là tên khóa học.
 
 Chế độ thu thập chỉ chạy sau thao tác bấm của người dùng và chỉ quét tab
 Telegram đang mở. Extension không truy cập cookie/token; quyền `tabs` và ba host
