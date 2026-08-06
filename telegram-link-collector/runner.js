@@ -109,25 +109,6 @@ function unwrapRedirectUrl(value) {
   return value;
 }
 
-function telegramWebUrlFromLanding(value) {
-  try {
-    const url = new URL(value);
-    if (url.hostname !== "t.me") return "";
-    const domain = url.pathname.split("/").filter(Boolean)[0];
-    if (!domain) return "";
-
-    const telegramAddress = new URL("tg://resolve");
-    telegramAddress.searchParams.set("domain", domain);
-    for (const key of ["start", "startgroup", "startapp"]) {
-      const parameter = url.searchParams.get(key);
-      if (parameter) telegramAddress.searchParams.set(key, parameter);
-    }
-    return `https://web.telegram.org/k/#?tgaddr=${encodeURIComponent(telegramAddress.href)}`;
-  } catch {
-    return "";
-  }
-}
-
 async function waitUntilInjectable(tabId, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -154,46 +135,35 @@ async function waitForUrlPrefix(tabId, prefix, timeoutMs = 15000) {
   throw new Error(`Trang không chuyển tới ${prefix}`);
 }
 
-async function openTelegramWeb(tabId, landingUrl) {
-  let webUrl = "";
-  let clicked = false;
-
-  try {
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const button = document.querySelector(
-          "a.tgme_action_button_new.tgme_action_web_button[href^='https://web.telegram.org/']"
-        );
-        if (!button) return { clicked: false, href: "" };
-        const href = button.href;
-        button.click();
-        return { clicked: true, href };
-      }
-    });
-    clicked = Boolean(result?.clicked);
-    webUrl = result?.href || "";
-  } catch {
-    // The deterministic t.me -> Telegram Web conversion below is the fallback.
-  }
-
-  webUrl ||= telegramWebUrlFromLanding(landingUrl);
-  if (!webUrl) {
-    throw new Error("Không lấy được URL từ nút OPEN IN WEB.");
-  }
-
-  if (clicked) {
+async function openTelegramWeb(tabId) {
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
     try {
-      await waitForUrlPrefix(tabId, "https://web.telegram.org/", 5000);
-      return tabId;
-    } catch {
-      // Use the href read from the same OPEN IN WEB button if its click was blocked.
-    }
-  }
+      const [{ result: clicked }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const button = document.querySelector("a.tgme_action_web_button");
+          if (!button) return false;
+          button.scrollIntoView({ block: "center", inline: "center" });
+          button.click();
+          return true;
+        }
+      });
 
-  await chrome.tabs.update(tabId, { url: webUrl, active: true });
-  await waitForUrlPrefix(tabId, "https://web.telegram.org/", 10000);
-  return tabId;
+      if (clicked) {
+        try {
+          await waitForUrlPrefix(tabId, "https://web.telegram.org/", 5000);
+          return tabId;
+        } catch {
+          // The page stayed on t.me; retry the same OPEN IN WEB button.
+        }
+      }
+    } catch {
+      // The t.me document may still be replacing its content; retry shortly.
+    }
+    await sleep(500);
+  }
+  throw new Error("Không bấm được nút OPEN IN WEB sau 20 giây.");
 }
 
 async function findPageAction(tabId, expectedText, timeoutMs = 10000) {
@@ -279,7 +249,7 @@ async function processUrl(url) {
   let current = await chrome.tabs.get(workingTabId);
 
   if (!current.url?.startsWith("https://web.telegram.org/")) {
-    workingTabId = await openTelegramWeb(workingTabId, current.url || "");
+    workingTabId = await openTelegramWeb(workingTabId);
     activeAutomationTabId = workingTabId;
     current = await chrome.tabs.get(workingTabId);
   }
