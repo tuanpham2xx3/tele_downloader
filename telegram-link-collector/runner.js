@@ -57,7 +57,7 @@ function appendLog(index, status, url, detail) {
   saveLogButton.disabled = false;
 }
 
-function waitForTabComplete(tabId, timeoutMs = 30000) {
+function waitForTabComplete(tabId, timeoutMs = 20000) {
   return new Promise(async (resolve, reject) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
@@ -88,13 +88,69 @@ function waitForTabComplete(tabId, timeoutMs = 30000) {
   });
 }
 
-async function findPageAction(tabId, expectedText) {
+function isTelegramLanding(url) {
+  try {
+    return new URL(url).hostname === "t.me";
+  } catch {
+    return false;
+  }
+}
+
+function unwrapRedirectUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.hostname === "www.google.com" && url.pathname === "/url") {
+      const target = url.searchParams.get("q") || url.searchParams.get("url");
+      if (target) return target;
+    }
+  } catch {
+    // Keep the original URL when it cannot be parsed.
+  }
+  return value;
+}
+
+function telegramWebUrlFromLanding(value) {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== "t.me") return "";
+    const domain = url.pathname.split("/").filter(Boolean)[0];
+    if (!domain) return "";
+
+    const telegramAddress = new URL("tg://resolve");
+    telegramAddress.searchParams.set("domain", domain);
+    for (const key of ["start", "startgroup", "startapp"]) {
+      const parameter = url.searchParams.get(key);
+      if (parameter) telegramAddress.searchParams.set(key, parameter);
+    }
+    return `https://web.telegram.org/k/#?tgaddr=${encodeURIComponent(telegramAddress.href)}`;
+  } catch {
+    return "";
+  }
+}
+
+async function waitUntilInjectable(tabId, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => document.readyState
+      });
+      return;
+    } catch {
+      await sleep(250);
+    }
+  }
+  throw new Error("Không thể truy cập trang Telegram trung gian.");
+}
+
+async function findPageAction(tabId, expectedText, timeoutMs = 10000) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (label) => {
+    func: async (label, maximumWait) => {
       const normalize = (value) => (value || "").replace(/\s+/g, " ").trim().toLowerCase();
       const expected = normalize(label);
-      const deadline = Date.now() + 15000;
+      const deadline = Date.now() + maximumWait;
 
       while (Date.now() < deadline) {
         const candidates = [...document.querySelectorAll("a, button, [role='button'], p")];
@@ -110,7 +166,7 @@ async function findPageAction(tabId, expectedText) {
       }
       return { error: `Không tìm thấy nút: ${label}` };
     },
-    args: [expectedText]
+    args: [expectedText, timeoutMs]
   });
   if (!result || result.error) throw new Error(result?.error || `Không tìm thấy ${expectedText}.`);
   return result;
@@ -122,8 +178,15 @@ async function followAction(tabId, label) {
   const action = await findPageAction(tabId, label);
 
   if (action.href) {
-    await chrome.tabs.update(tabId, { url: action.href, active: true });
-    await waitForTabComplete(tabId);
+    const targetUrl = unwrapRedirectUrl(action.href);
+    await chrome.tabs.update(tabId, { url: targetUrl, active: true });
+    if (isTelegramLanding(targetUrl)) {
+      // t.me tries to launch the tg:// protocol, so Chrome may never report the
+      // tab as fully complete even though the OPEN IN WEB button is visible.
+      await waitUntilInjectable(tabId);
+    } else {
+      await waitForTabComplete(tabId);
+    }
     return tabId;
   }
 
@@ -133,13 +196,21 @@ async function followAction(tabId, label) {
     const tabs = await chrome.tabs.query({ currentWindow: true });
     const newTab = tabs.find((tab) => !knownTabIds.has(tab.id));
     if (newTab?.id) {
-      if (newTab.status !== "complete") await waitForTabComplete(newTab.id);
+      if (isTelegramLanding(newTab.url)) {
+        await waitUntilInjectable(newTab.id);
+      } else if (newTab.status !== "complete") {
+        await waitForTabComplete(newTab.id);
+      }
       await chrome.tabs.remove(tabId).catch(() => {});
       return newTab.id;
     }
     const current = await chrome.tabs.get(tabId);
     if (current.url !== before.url) {
-      if (current.status !== "complete") await waitForTabComplete(tabId);
+      if (isTelegramLanding(current.url)) {
+        await waitUntilInjectable(tabId);
+      } else if (current.status !== "complete") {
+        await waitForTabComplete(tabId);
+      }
       return tabId;
     }
   }
@@ -156,7 +227,15 @@ async function processUrl(url) {
   let current = await chrome.tabs.get(workingTabId);
 
   if (!current.url?.startsWith("https://web.telegram.org/")) {
-    workingTabId = await followAction(workingTabId, "OPEN IN WEB");
+    try {
+      workingTabId = await followAction(workingTabId, "OPEN IN WEB");
+    } catch (error) {
+      current = await chrome.tabs.get(workingTabId);
+      const fallbackUrl = telegramWebUrlFromLanding(current.url || "");
+      if (!fallbackUrl) throw error;
+      await chrome.tabs.update(workingTabId, { url: fallbackUrl, active: true });
+      await waitForTabComplete(workingTabId);
+    }
     activeAutomationTabId = workingTabId;
     current = await chrome.tabs.get(workingTabId);
   }

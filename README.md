@@ -84,3 +84,6 @@ file TXT đã lưu, đặt độ trễ, rồi bấm **Bắt đầu xử lý**. V
 Runner có nút **Dừng** và xuất log CSV. Nó không bấm **START BOT**, không tải
 file từ bot và không đọc cookie/token. Quyền `tabs` được dùng để quản lý tab tạm;
 host access chỉ giới hạn ở `www.cbusters.com`, `t.me` và `web.telegram.org`.
+Mỗi bước có thời gian chờ hữu hạn; nếu nút **OPEN IN WEB** không phản hồi, runner
+tự chuyển URL `t.me` sang Telegram Web, giữ nguyên tham số bot `start`. Link lỗi
+được ghi vào log và hàng đợi tiếp tục chạy.
