@@ -75,8 +75,8 @@ cụ thể chỉ phục vụ runner mô tả bên dưới.
 
 Sau khi thu thập URL, mở popup extension và chọn **Xử lý danh sách TXT**. Chọn
 file TXT đã lưu, đặt độ trễ và thời gian chờ trang ổn định, rồi bấm **Bắt đầu xử
-lý**. Runner hiển thị thời gian thực đã dùng cho URL hiện tại và ghi tổng thời
-gian của từng URL vào log. Với từng URL, công cụ sẽ:
+lý**. Runner hiển thị mốc giờ thực tế khi mở URL (ví dụ `16:55 8/6/2026`), thời
+gian đã dùng và ghi cả hai vào log. Với từng URL, công cụ sẽ:
 
 1. Mở trang `www.cbusters.com`.
 2. Bấm **Get Files (Alternate)**.

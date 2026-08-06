@@ -39,12 +39,18 @@ function updateProgress(completed) {
   progressBar.style.width = queue.length ? `${(completed / queue.length) * 100}%` : "0%";
 }
 
-function appendLog(index, status, url, detail) {
-  const entry = { index, status, url, detail };
+function formatOpenedAt(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())} ${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function appendLog(index, openedAt, status, url, detail) {
+  const entry = { index, openedAt, status, url, detail };
   logEntries.push(entry);
   const row = document.createElement("tr");
   for (const [value, className] of [
     [index, ""],
+    [openedAt, ""],
     [status, status === "Thành công" ? "success" : "failed"],
     [url, ""],
     [detail, ""]
@@ -291,18 +297,19 @@ startButton.addEventListener("click", async () => {
     if (stopRequested) break;
     const url = queue[index];
     const startedAt = Date.now();
-    setStatus(`Đang xử lý ${index + 1}/${queue.length} — 0 giây: ${url}`);
+    const openedAt = formatOpenedAt(new Date(startedAt));
+    setStatus(`Đang xử lý ${index + 1}/${queue.length} — mở lúc ${openedAt} — 0 giây: ${url}`);
     const elapsedTimer = setInterval(() => {
       const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
-      setStatus(`Đang xử lý ${index + 1}/${queue.length} — ${elapsedSeconds} giây: ${url}`);
+      setStatus(`Đang xử lý ${index + 1}/${queue.length} — mở lúc ${openedAt} — ${elapsedSeconds} giây: ${url}`);
     }, 1000);
     try {
       await processUrl(url, pageWaitMs);
       const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      appendLog(index + 1, "Thành công", url, `Đã mở trong Telegram Web (${elapsedSeconds} giây)`);
+      appendLog(index + 1, openedAt, "Thành công", url, `Đã mở trong Telegram Web (${elapsedSeconds} giây)`);
     } catch (error) {
       const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      appendLog(index + 1, "Lỗi", url, `${error.message || String(error)} (${elapsedSeconds} giây)`);
+      appendLog(index + 1, openedAt, "Lỗi", url, `${error.message || String(error)} (${elapsedSeconds} giây)`);
       if (activeAutomationTabId) {
         await chrome.tabs.remove(activeAutomationTabId).catch(() => {});
         activeAutomationTabId = null;
@@ -334,8 +341,8 @@ stopButton.addEventListener("click", async () => {
 
 saveLogButton.addEventListener("click", async () => {
   const escapeCsv = (value) => `"${String(value).replaceAll('"', '""')}"`;
-  const rows = [["index", "status", "url", "detail"], ...logEntries.map((entry) =>
-    [entry.index, entry.status, entry.url, entry.detail]
+  const rows = [["index", "opened_at", "status", "url", "detail"], ...logEntries.map((entry) =>
+    [entry.index, entry.openedAt, entry.status, entry.url, entry.detail]
   )];
   const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n") + "\r\n";
   await chrome.downloads.download({
