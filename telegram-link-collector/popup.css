@@ -91,3 +91,10 @@ textarea {
   margin: 12px 0 0;
   font-size: 11px;
 }
+
+.runner {
+  width: 100%;
+  margin-top: 10px;
+  color: #fff;
+  background: #17212b;
+}

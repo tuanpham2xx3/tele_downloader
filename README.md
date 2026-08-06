@@ -67,6 +67,20 @@ Trong Telegram Web:
 3. Chọn **Quét toàn bộ group con**.
 4. Kiểm tra kết quả rồi chọn **Lưu TXT**.
 
-Extension chỉ có `activeTab`, `scripting` và `downloads`. Nó chỉ chạy sau thao
-tác bấm của người dùng, chỉ quét tab Telegram đang mở, không mở các URL đích và
-không truy cập cookie/token.
+Chế độ thu thập chỉ chạy sau thao tác bấm của người dùng và chỉ quét tab
+Telegram đang mở. Extension không truy cập cookie/token; quyền `tabs` và ba host
+cụ thể chỉ phục vụ runner mô tả bên dưới.
+
+## Mở bot từ danh sách TXT
+
+Sau khi thu thập URL, mở popup extension và chọn **Xử lý danh sách TXT**. Chọn
+file TXT đã lưu, đặt độ trễ, rồi bấm **Bắt đầu xử lý**. Với từng URL, công cụ sẽ:
+
+1. Mở trang `www.cbusters.com`.
+2. Bấm **Get Files (Alternate)**.
+3. Trên trang `t.me`, bấm **OPEN IN WEB**.
+4. Chờ Telegram Web tải xong, ghi log và đóng tab trung gian.
+
+Runner có nút **Dừng** và xuất log CSV. Nó không bấm **START BOT**, không tải
+file từ bot và không đọc cookie/token. Quyền `tabs` được dùng để quản lý tab tạm;
+host access chỉ giới hạn ở `www.cbusters.com`, `t.me` và `web.telegram.org`.

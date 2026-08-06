@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Telegram bot queue</title>
+    <link rel="stylesheet" href="runner.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">GET FILES AUTOMATION</p>
+          <h1>Mở bot từ danh sách URL</h1>
+          <p class="intro">Mỗi URL sẽ được mở, chọn “Get Files (Alternate)”, rồi chọn “OPEN IN WEB”.</p>
+        </div>
+        <div class="counter"><strong id="completed">0</strong><span>/ <span id="total">0</span></span></div>
+      </header>
+
+      <section class="panel controls">
+        <label class="file-picker">
+          <span>Danh sách TXT</span>
+          <input id="file" type="file" accept=".txt,text/plain">
+        </label>
+        <label>
+          <span>Độ trễ giữa mỗi URL (giây)</span>
+          <input id="delay" type="number" min="1" max="30" step="0.5" value="2">
+        </label>
+        <div class="buttons">
+          <button id="start" disabled>Bắt đầu xử lý</button>
+          <button id="stop" class="danger" disabled>Dừng</button>
+          <button id="saveLog" class="secondary" disabled>Lưu log CSV</button>
+        </div>
+      </section>
+
+      <section class="panel progress-panel">
+        <div class="progress-track"><div id="progressBar"></div></div>
+        <p id="status" role="status" aria-live="polite">Chọn file TXT để bắt đầu.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Nhật ký</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Trạng thái</th><th>URL</th><th>Chi tiết</th></tr></thead>
+            <tbody id="log"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="privacy">Công cụ không đọc cookie/token, không bấm START BOT và không tải file từ bot.</p>
+    </main>
+    <script src="runner.js"></script>
+  </body>
+</html>

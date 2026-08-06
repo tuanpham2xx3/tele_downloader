@@ -4,6 +4,7 @@ const scanVisibleButton = document.querySelector("#scanVisible");
 const scanHistoryButton = document.querySelector("#scanHistory");
 const copyButton = document.querySelector("#copy");
 const saveButton = document.querySelector("#save");
+const openRunnerButton = document.querySelector("#openRunner");
 
 let collectedUrls = [];
 
@@ -176,4 +177,8 @@ saveButton.addEventListener("click", async () => {
     saveAs: true
   });
   showStatus(`Đã tạo file chứa ${collectedUrls.length} URL.`);
+});
+
+openRunnerButton.addEventListener("click", async () => {
+  await chrome.tabs.create({ url: chrome.runtime.getURL("runner.html") });
 });

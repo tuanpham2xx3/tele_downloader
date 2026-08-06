@@ -6,3 +6,6 @@ Chrome_Telegram_Profile/
 .telerecon-credentials.xml
 __pycache__/
 *.pyc
+
+# User-generated URL exports.
+telegram-get-files-*.txt
