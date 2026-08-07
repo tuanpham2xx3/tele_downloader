@@ -275,31 +275,55 @@ import zipfile
 
 
 def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
-    """Giải nén an toàn: Thử 7z/7za trước (vì 7z xử lý được cả RAR đổi tên thành ZIP), sau đó thử zipfile & unrar"""
+    """
+    Hàm giải nén đa định dạng thông minh (ZIP, RAR, 7Z, TAR, RAR giả dạng ZIP):
+    1. Kiểm tra 7z/7za đầu tiên với cờ -y (overwrite) & -p- (no prompt pass).
+    2. Kiểm tra Python built-in zipfile nếu 7z thất bại.
+    3. Thử unrar / tarfile cho các định dạng RAR/TAR.
+    """
+    if not file_path.exists() or file_path.stat().st_size == 0:
+        log(f"File nén rỗng hoặc không tồn tại: {file_path.name}", "WARN")
+        return False
+
+    # 1. Ưu tiên 7z/7za (Xử lý 99.9% định dạng bao gồm .rar, .zip, .7z, multi-part RAR)
     cmd_7z = shutil.which("7z") or shutil.which("7za") or "/usr/bin/7z"
     try:
-        cmd = [cmd_7z if cmd_7z else "7z", "x", "-y", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cmd = [cmd_7z if cmd_7z else "7z", "x", "-y", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
         if res.returncode == 0:
             return True
     except Exception as e:
-        log(f"Cảnh báo 7z: {e}", "WARN")
+        log(f"Cảnh báo 7z ({file_path.name}): {e}", "WARN")
 
+    # 2. Thử Python zipfile nội tại (Cho file .zip chuẩn)
     if file_path.suffix.lower() == ".zip":
         try:
+            import zipfile
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(extracted_dir)
             return True
         except Exception as e:
-            log(f"Cảnh báo zipfile: {e}", "WARN")
+            log(f"Cảnh báo zipfile ({file_path.name}): {e}", "WARN")
 
-    cmd_unrar = shutil.which("unrar") or "/usr/bin/unrar"
-    try:
-        res = subprocess.run([cmd_unrar if cmd_unrar else "unrar", "x", "-o+", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if res.returncode == 0:
+    # 3. Thử unrar cho .rar
+    if file_path.suffix.lower() == ".rar":
+        cmd_unrar = shutil.which("unrar") or "/usr/bin/unrar"
+        try:
+            res = subprocess.run([cmd_unrar if cmd_unrar else "unrar", "x", "-o+", "-p-", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # 4. Thử tarfile cho .tar / .gz / .tgz / .bz2
+    if file_path.suffix.lower() in ('.tar', '.gz', '.tgz', '.bz2'):
+        try:
+            import tarfile
+            with tarfile.open(file_path, 'r:*') as tar_ref:
+                tar_ref.extractall(extracted_dir)
             return True
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     return False
 
