@@ -104,28 +104,11 @@ if [ ${#MISSING[@]} -gt 0 ]; then
         sess="${SESSIONS[$i]}"
         name="${NAMES[$i]}"
         echo -e "${CYAN}━━━ Login $name (session: $sess) ━━━${NC}"
-        $PYTHON_BIN - <<PYEOF
-import asyncio, os, sys
-sys.path.insert(0, 'telegram_media_downloader')
-
-async def login():
-    try:
-        from telethon import TelegramClient
-    except ImportError:
-        print("ERROR: telethon chưa được cài!")
-        return
-    api_id   = os.environ.get('TELERECON_API_ID',   '2040')
-    api_hash = os.environ.get('TELERECON_API_HASH', 'b18441a12607e109d9496d9a244ead1c')
-    os.makedirs('telegram_media_downloader', exist_ok=True)
-    session  = 'telegram_media_downloader/${sess}'
-    client   = TelegramClient(session, int(api_id), str(api_hash))
-    await client.start()
-    me = await client.get_me()
-    print(f"[OK] Đã login: {getattr(me,'first_name','')} (@{getattr(me,'username',me.id)})")
-    await client.disconnect()
-
-asyncio.run(login())
-PYEOF
+        if [ -t 0 ]; then
+            $PYTHON_BIN login.py "$sess"
+        else
+            $PYTHON_BIN login.py "$sess" < /dev/tty
+        fi
         echo ""
     done
 else
