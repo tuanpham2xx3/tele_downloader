@@ -36,13 +36,20 @@ fi
 
 mkdir -p telegram_media_downloader
 
-# ── BƯỚC 1: Pull code ────────────────────────────────
+# ── BƯỚC 1: Pull code (Bảo vệ file session không bị Git đè) ──
 info "Pull code mới nhất từ GitHub..."
 if git rev-parse --is-inside-work-tree &>/dev/null; then
+    # Tự động lưu các file .session hiện có sang /tmp trước khi đè code
+    mkdir -p /tmp/sess_backup
+    cp telegram_media_downloader/*.session /tmp/sess_backup/ 2>/dev/null || true
+
     git fetch origin main 2>/dev/null || true
     git reset --hard origin/main 2>/dev/null || true
     git pull origin main 2>/dev/null || true
-    ok "Code cập nhật xong"
+
+    # Khôi phục các file .session vừa lưu
+    cp /tmp/sess_backup/*.session telegram_media_downloader/ 2>/dev/null || true
+    ok "Code cập nhật xong (đã bảo vệ session)"
 else
     warn "Không phải git repository, bỏ qua git pull."
 fi
