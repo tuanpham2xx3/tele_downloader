@@ -240,11 +240,18 @@ setInterval(fetchAll, 2500);
             self.send_error(404)
 
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
+
 def start_web_log_server(port: int = 5000):
     def run_server():
-        server = HTTPServer(("0.0.0.0", port), WebLogHandler)
-        log(f"Đã khởi động Web Log Server tại http://0.0.0.0:{port}", "INFO")
-        server.serve_forever()
+        try:
+            server = ReusableHTTPServer(("0.0.0.0", port), WebLogHandler)
+            log(f"Đã khởi động Web Log Server tại http://0.0.0.0:{port}", "INFO")
+            server.serve_forever()
+        except Exception as e:
+            log(f"Lỗi khởi động Web Log Server trên port {port}: {e}", "ERROR")
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()

@@ -106,10 +106,17 @@ fetchLogs(); setInterval(fetchLogs, 2000);
             self.send_response(404)
             self.end_headers()
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
+
 def start_web_log_server(port: int):
     def _serve():
-        server = HTTPServer(("0.0.0.0", port), WebLogHandler)
-        server.serve_forever()
+        try:
+            server = ReusableHTTPServer(("0.0.0.0", port), WebLogHandler)
+            server.serve_forever()
+        except Exception as e:
+            log(f"Lỗi khởi động Relay Web Log Server port {port}: {e}", "ERROR")
     t = threading.Thread(target=_serve, daemon=True)
     t.start()
     log(f"Đã khởi động Relay Web Log Server tại http://0.0.0.0:{port}", "INFO")
