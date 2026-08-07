@@ -24,19 +24,18 @@ if [ -z "$(git config user.name)" ]; then
     git config user.name "tuanpham2xx3"
 fi
 
-echo -e "${CYAN}[INFO] Đang đồng bộ git repo...${NC}"
-git pull --rebase origin main 2>/dev/null || true
-
-# Sao lưu rclone.conf nếu có
+echo -e "${CYAN}[INFO] Đang đóng gói bản sao lưu session...${NC}"
+git add telegram_media_downloader/*.session 2>/dev/null || true
 if [ -f ~/.config/rclone/rclone.conf ]; then
     cp ~/.config/rclone/rclone.conf ./rclone.conf
     git add rclone.conf
     echo -e "${GREEN}[OK] Đã đính kèm rclone.conf vào bản sao lưu.${NC}"
 fi
 
-echo -e "${CYAN}[INFO] Đang đẩy session files & rclone.conf lên GitHub...${NC}"
-git add telegram_media_downloader/*.session 2>/dev/null || true
-git commit -m "chore: backup telegram sessions and rclone.conf"
+git commit -m "chore: backup telegram sessions and rclone.conf" 2>/dev/null || true
+
+echo -e "${CYAN}[INFO] Đang đồng bộ và đẩy bản sao lưu lên GitHub...${NC}"
+git pull --rebase origin main 2>/dev/null || true
 git push origin main
 
 if [ $? -eq 0 ]; then
