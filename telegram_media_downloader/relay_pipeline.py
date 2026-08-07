@@ -321,7 +321,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
             try:
                 await client.download_media(msg, file=str(save_path))
                 log(f"  - ✔ [RELAY] Tải xong {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
-                if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', fname, re.I):
+                if not re.search(r'\.part\d+\.rar$', fname, re.I):
                     extract_single_archive(save_path, extracted_dir)
             except Exception as e:
                 log(f"  - ✘ [RELAY] Lỗi khi tải {fname}: {e}", "ERROR", log_path)
@@ -335,6 +335,11 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         shutil.rmtree(str(course_dir), ignore_errors=True)
         update_csv_status(course_title, "FAILED_DOWNLOAD")
         return
+
+    # Thử giải nén cho các bộ file nén multi-part RAR sau khi đã tải đầy đủ tất cả các part
+    for file_path in archives_dir.glob("*.rar"):
+        if re.search(r'\.part0?1\.rar$', file_path.name, re.I):
+            extract_single_archive(file_path, extracted_dir)
 
     ok = repackage_and_upload(course_dir, upload_dir, rclone_parent, course_title)
     shutil.rmtree(str(course_dir), ignore_errors=True)

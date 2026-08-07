@@ -707,7 +707,7 @@ async def main():
                     try:
                         await client.download_media(msg, file=str(save_path))
                         log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
-                        if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
+                        if not re.search(r'\.part\d+\.rar$', filename, re.I):
                             extract_single_archive(save_path, extracted_dir)
                     except Exception as e:
                         log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
