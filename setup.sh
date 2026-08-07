@@ -82,11 +82,31 @@ for i in "${!SESSIONS[@]}"; do
     sess="${SESSIONS[$i]}"
     name="${NAMES[$i]}"
     f="telegram_media_downloader/${sess}.session"
-    if [ -f "$f" ]; then
-        size=$(du -h "$f" | cut -f1)
+
+    # Kiểm tra xem session có thực sự đăng nhập hợp lệ không
+    IS_AUTH=$($PYTHON_BIN -c "
+import asyncio, os
+from telethon import TelegramClient
+async def test():
+    api_id = int(os.environ.get('TELERECON_API_ID', '2040'))
+    api_hash = os.environ.get('TELERECON_API_HASH', 'b18441a12607e109d9496d9a244ead1c')
+    c = TelegramClient('telegram_media_downloader/${sess}', api_id, api_hash)
+    await c.connect()
+    auth = await c.is_user_authorized()
+    await c.disconnect()
+    print('1' if auth else '0')
+try:
+    asyncio.run(test())
+except Exception:
+    print('0')
+" 2>/dev/null || echo "0")
+
+    if [ "$IS_AUTH" = "1" ]; then
+        size=$(du -h "$f" 2>/dev/null | cut -f1 || echo "0K")
         ok "$name: $f ($size) ✔"
     else
-        err "$name: MISSING - cần login lại"
+        rm -f "$f" 2>/dev/null || true
+        err "$name: Hết hạn / Chưa đăng nhập - cần login lại"
         MISSING+=("$i")
     fi
 done
