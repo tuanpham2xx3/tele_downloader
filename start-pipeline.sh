@@ -36,8 +36,14 @@ if [ -f "./cloudflared" ]; then
     fi
 fi
 
-# Khởi chạy Pipeline ngầm bằng nohup
-nohup $PYTHON_BIN $SCRIPT_PATH -r "$RCLONE_DEST" -p "$PORT" "$@" > pipeline.log 2>&1 &
+CMD_PREFIX=""
+if command -v ona &> /dev/null; then
+    echo "⚡ Phát hiện môi trường ONA chính thức! Đang kích hoạt 'ona environment keep-alive'..."
+    CMD_PREFIX="ona environment keep-alive -- "
+fi
+
+# Khởi chạy Pipeline ngầm bằng nohup & ONA Keep-Alive
+nohup $CMD_PREFIX$PYTHON_BIN $SCRIPT_PATH -r "$RCLONE_DEST" -p "$PORT" "$@" > pipeline.log 2>&1 &
 
 echo "✔ Pipeline đã được khởi chạy ngầm THÀNH CÔNG!"
 echo "📊 Bạn có thể xem nhật ký thực thi tại: pipeline.log"
