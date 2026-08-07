@@ -491,8 +491,9 @@ async def main():
         archives_dir.mkdir(parents=True, exist_ok=True)
         upload_dir.mkdir(parents=True, exist_ok=True)
 
+
         # BƯỚC 3: TẢI TỪNG FILE ĐÍNH KÈM CỦA KHÓA
-        log("BƯỚC 3: Tải file đính kèm của khóa học...", "INFO")
+        log("BƯỚC 3: Tải file đính kèm của khóa học (16 luồng song song)...", "INFO")
         download_success = True
         for filename, msg in files:
             save_path = archives_dir / filename
@@ -502,9 +503,9 @@ async def main():
                 continue
 
             size_mb = file_size / 1024 / 1024 if file_size else 0.0
-            log(f"  - Đang tải: {filename} ({size_mb:.1f} MB)", "INFO")
+            log(f"  - Đang tải [16 luồng]: {filename} ({size_mb:.1f} MB)", "INFO")
             try:
-                await client.download_media(msg, file=str(save_path))
+                await parallel_download_media(client, msg, save_path, workers=16)
             except Exception as e:
                 log(f"Thất bại khi tải {filename}: {e}", "ERROR")
                 download_success = False
