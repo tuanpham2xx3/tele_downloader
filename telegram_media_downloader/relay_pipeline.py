@@ -353,16 +353,21 @@ async def main():
         if "current" in pending_batch and msg.media:
             pending_batch["current"]["msgs"].append(msg)
 
-    client.start_event_handlers()
     log(f"[RELAY] ⏳ Đang lắng nghe relay group {args.group}...", "INFO", log_path)
 
-    # Vòng lặp xử lý queue
-    while True:
-        try:
-            course_title, msgs = await asyncio.wait_for(processing_queue.get(), timeout=60)
-            await process_course_batch(client, course_title, msgs, rclone_parent, log_path)
-        except asyncio.TimeoutError:
-            pass  # Tiếp tục chờ tin nhắn mới
+    # Chạy song song: lắng nghe event + xử lý queue download
+    async def queue_processor():
+        while True:
+            try:
+                course_title, msgs = await asyncio.wait_for(processing_queue.get(), timeout=30)
+                await process_course_batch(client, course_title, msgs, rclone_parent, log_path)
+            except asyncio.TimeoutError:
+                pass  # Tiếp tục chờ tin nhắn mới
+
+    await asyncio.gather(
+        client.run_until_disconnected(),
+        queue_processor()
+    )
 
 
 if __name__ == "__main__":
