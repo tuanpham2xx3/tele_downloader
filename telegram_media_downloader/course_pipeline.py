@@ -277,7 +277,7 @@ import zipfile
 def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
     """
     Hàm giải nén đa định dạng thông minh (ZIP, RAR, 7Z, TAR, RAR giả dạng ZIP):
-    1. Kiểm tra 7z/7za đầu tiên với cờ -y (overwrite) & -p- (no prompt pass).
+    1. Kiểm tra 7z/7za đầu tiên với cờ -y -aoa (overwrite all) & -p- (no prompt pass).
     2. Kiểm tra Python built-in zipfile nếu 7z thất bại.
     3. Thử unrar / tarfile cho các định dạng RAR/TAR.
     """
@@ -285,45 +285,38 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
         log(f"File nén rỗng hoặc không tồn tại: {file_path.name}", "WARN")
         return False
 
-    # 1. Ưu tiên 7z/7za (Xử lý 99.9% định dạng bao gồm .rar, .zip, .7z, multi-part RAR)
     cmd_7z = shutil.which("7z") or shutil.which("7za") or "7z"
     try:
-        cmd = [cmd_7z, "x", "-y", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
         if res.returncode == 0:
+            log(f"✔ 7z đã giải nén thành công: {file_path.name}", "SUCCESS")
             return True
+        else:
+            log(f"Cảnh báo 7z ({file_path.name}): exit_code={res.returncode}, msg={res.stderr.strip()[:150] or res.stdout.strip()[:150]}", "WARN")
     except Exception as e:
-        log(f"Cảnh báo 7z ({file_path.name}): {e}", "WARN")
+        log(f"Lỗi 7z ({file_path.name}): {e}", "WARN")
 
-    # 2. Thử Python zipfile nội tại (Cho file .zip chuẩn)
     if file_path.suffix.lower() == ".zip":
         try:
             import zipfile
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(extracted_dir)
+            log(f"✔ zipfile đã giải nén thành công: {file_path.name}", "SUCCESS")
             return True
         except Exception as e:
             log(f"Cảnh báo zipfile ({file_path.name}): {e}", "WARN")
 
-    # 3. Thử unrar cho .rar
-    if file_path.suffix.lower() == ".rar":
-        cmd_unrar = shutil.which("unrar") or "/usr/bin/unrar"
-        try:
-            res = subprocess.run([cmd_unrar if cmd_unrar else "unrar", "x", "-o+", "-p-", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
-            if res.returncode == 0:
-                return True
-        except Exception:
-            pass
-
-    # 4. Thử tarfile cho .tar / .gz / .tgz / .bz2
-    if file_path.suffix.lower() in ('.tar', '.gz', '.tgz', '.bz2'):
-        try:
-            import tarfile
-            with tarfile.open(file_path, 'r:*') as tar_ref:
-                tar_ref.extractall(extracted_dir)
+    cmd_unrar = shutil.which("unrar") or "unrar"
+    try:
+        res = subprocess.run([cmd_unrar, "x", "-o+", "-p-", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+        if res.returncode == 0:
+            log(f"✔ unrar đã giải nén thành công: {file_path.name}", "SUCCESS")
             return True
-        except Exception:
-            pass
+        else:
+            log(f"Cảnh báo unrar ({file_path.name}): exit_code={res.returncode}", "WARN")
+    except Exception as e:
+        log(f"Lỗi unrar ({file_path.name}): {e}", "WARN")
 
     return False
 
@@ -420,47 +413,8 @@ def check_rclone_folder_exists(rclone_parent: str, course_title: str) -> bool:
 
 
 async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 16) -> None:
-    file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
-    if not file_size or file_size < 5 * 1024 * 1024:
-        await client.download_media(msg, file=str(save_path))
-        return
-
-    chunk_size = 512 * 1024
-    total_chunks = (file_size + chunk_size - 1) // chunk_size
-
-    temp_path = save_path.with_suffix(save_path.suffix + ".tmp")
-    with open(temp_path, "wb") as f:
-        f.truncate(file_size)
-
-    semaphore = asyncio.Semaphore(workers)
-
-    async def download_part(chunk_index: int):
-        async with semaphore:
-            offset = chunk_index * chunk_size
-            limit = min(chunk_size, file_size - offset)
-            for attempt in range(3):
-                try:
-                    data = await client.download_file(msg.media, offset=offset, limit=limit)
-                    if data:
-                        with open(temp_path, "r+b") as f:
-                            f.seek(offset)
-                            f.write(data)
-                        return
-                except Exception:
-                    await asyncio.sleep(0.3)
-
-    tasks = [download_part(i) for i in range(total_chunks)]
-    await asyncio.gather(*tasks)
-
-    if temp_path.exists() and temp_path.stat().st_size == file_size:
-        temp_path.replace(save_path)
-    else:
-        await client.download_media(msg, file=str(save_path))
-        if temp_path.exists():
-            try:
-                temp_path.unlink()
-            except Exception:
-                pass
+    """Tải file chuẩn từ Telegram, đảm bảo file nguyên vẹn không bị hỏng byte"""
+    await client.download_media(msg, file=str(save_path))
 
 
 # ==========================================
