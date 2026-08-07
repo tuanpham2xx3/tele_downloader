@@ -328,7 +328,29 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     log(f"\n▶ [RELAY] Bắt đầu xử lý khóa: {course_title}", "SUCCESS", log_path)
 
     allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02")
-    course_dir = TEMP_DIR / sanitize_name(course_title)
+
+    # Ước lượng dung lượng để chọn RAM hay đĩa thường
+    total_mb = sum(
+        getattr(m.file, "size", 0) / 1024 / 1024
+        for m in msgs if getattr(m, "file", None)
+    )
+    estimated_gb = max(total_mb / 1024 * 2.5, 2.0)
+
+    if _PREFER_RAM:
+        try:
+            shm_stat = shutil.disk_usage(str(_SHM_DIR))
+            shm_free_gb = shm_stat.free / 1024**3
+        except Exception:
+            shm_free_gb = 0
+        if shm_free_gb >= estimated_gb + 1.0:
+            course_dir = TEMP_DIR / sanitize_name(course_title)
+            log(f"[RAM Disk] Dùng /dev/shm cho [{course_title}] (free={shm_free_gb:.1f}GB, cần≈{estimated_gb:.1f}GB)", "INFO", log_path)
+        else:
+            course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
+            log(f"[Disk] /dev/shm chỉ còn {shm_free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN", log_path)
+    else:
+        course_dir = TEMP_DIR / sanitize_name(course_title)
+
     archives_dir = course_dir / "archives"
     upload_dir   = course_dir / "upload"
     extracted_dir = course_dir / "extracted"

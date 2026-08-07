@@ -64,15 +64,27 @@ else:
 
 
 def check_shm_free_gb(min_gb: float = 2.0) -> bool:
-    """Kiểm tra RAM disk còn đủ chỗ không (mặc định cần >=2GB free)."""
+    """Kiểm tra RAM disk còn đủ chỗ không."""
     if not _PREFER_RAM:
-        return True  # đĩa thường không cần kiểm tra
+        return True
     try:
         stat = shutil.disk_usage(str(_SHM_DIR))
         free_gb = stat.free / 1024**3
         return free_gb >= min_gb
     except Exception:
         return True
+
+
+def get_temp_dir_for_course(course_title: str, estimated_gb: float = 3.0) -> Path:
+    """Chọn TEMP_DIR thông minh: dùng RAM nếu đủ chỗ, fallback về đĩa."""
+    if _PREFER_RAM and check_shm_free_gb(estimated_gb + 1.0):
+        ram_path = _SHM_DIR / f"pipeline_acc1_temp" / sanitize_name(course_title)
+        log(f"[RAM Disk] Sử dụng /dev/shm cho [{course_title}] (free={shutil.disk_usage(str(_SHM_DIR)).free/1024**3:.1f}GB)", "INFO")
+        return ram_path
+    else:
+        disk_path = BASE_DIR / "temp_processing" / sanitize_name(course_title)
+        log(f"[Disk] /dev/shm không đủ chỗ, dùng đĩa cho [{course_title}]", "WARN")
+        return disk_path
 
 # Global Live Log Memory Buffer
 log_history: List[str] = []
@@ -801,6 +813,7 @@ async def main():
 
     acc1_queue: asyncio.Queue = asyncio.Queue()
     acc1_is_busy = False
+    acc1_dispatching = False   # Flag ngăn double-assign trong dispatcher
 
     acc2_current_course: Optional[str] = None
     acc3_current_course: Optional[str] = None
@@ -823,7 +836,7 @@ async def main():
 
     # ── Dispatcher Giám Sát & Điều Phối Liên Tục ─────────────
     async def continuous_dispatcher():
-        nonlocal acc2_current_course, acc3_current_course
+        nonlocal acc2_current_course, acc3_current_course, acc1_dispatching
         log_msg = "🚀 [DISPATCHER] Khởi chạy Bộ Giám Sát & Điều Phối Liên Tục 3 Worker..."
         log(log_msg, "SUCCESS")
         log_dispatcher(log_msg, "SUCCESS")
@@ -849,8 +862,9 @@ async def main():
                     log_dispatcher(msg, "SUCCESS")
                     acc3_current_course = None
 
-            # 3. Phân công cho Acc 1 ngay khi Acc 1 rảnh
-            if not acc1_is_busy and acc1_queue.empty():
+            # 3. Phân công cho Acc 1 chỉ khi THỰC SỰ rảnh (không busy, queue rỗng, và không đang dispatch)
+            if not acc1_is_busy and acc1_queue.empty() and not acc1_dispatching:
+                acc1_dispatching = True
                 item = await get_next_unprocessed_course()
                 if item:
                     idx, c_title, c_files = item
@@ -858,6 +872,7 @@ async def main():
                     log(msg, "INFO")
                     log_dispatcher(msg, "INFO")
                     await acc1_queue.put(item)
+                acc1_dispatching = False
 
             # 4. Phân công cho Acc 2 ngay khi Acc 2 rảnh
             if relay_acc2 and acc2_current_course is None:
@@ -917,7 +932,14 @@ async def main():
             log(f"Tổng số file đính kèm: {len(files)}", "INFO")
             log("==========================================", "INFO")
 
-            course_dir = TEMP_DIR / sanitize_name(course_title)
+            # Ước lượng dung lượng course (MB → GB) để chọn RAM hay đĩa
+            total_mb = sum(
+                getattr(m.file, "size", 0) / 1024 / 1024
+                for _, m in files if getattr(m, "file", None)
+            )
+            estimated_gb = max(total_mb / 1024 * 2.5, 2.0)  # x2.5 vì giải nén thường lớn hơn rar
+
+            course_dir = get_temp_dir_for_course(course_title, estimated_gb)
             archives_dir = course_dir / "archives"
             upload_dir = course_dir / "upload"
             extracted_dir = course_dir / "extracted"
