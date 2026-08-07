@@ -340,9 +340,13 @@ def repackage_extracted(course_dir: Path, upload_dir: Path) -> bool:
         shutil.move(str(vid), str(dest))
 
     # 2. Nén toàn bộ file còn lại không phải video thành 1 file Class_Materials.zip duy nhất
-    if other_files:
-        log("Đang đóng gói tài liệu phụ thành Class_Materials.zip...", "INFO")
-        shutil.make_archive(str(upload_dir / "Class_Materials"), 'zip', str(extracted_dir))
+    # 3. Cập nhật mtime về thời gian hiện tại (ngày hôm nay) cho tất cả các file trước khi upload
+    for f in upload_dir.rglob("*"):
+        if f.is_file():
+            try:
+                os.utime(str(f), None)
+            except Exception:
+                pass
 
     return True
 
@@ -356,7 +360,7 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
 
     log(f"Đang tải lên Google Drive qua Rclone: {target_remote_path}...", "INFO")
 
-    cmd = ["rclone", "copy", str(upload_dir), target_remote_path, "--progress", "--stats-one-line"]
+    cmd = ["rclone", "copy", str(upload_dir), target_remote_path, "--progress", "--stats-one-line", "--no-update-modtime"]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in process.stdout:
