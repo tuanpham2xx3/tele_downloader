@@ -9,6 +9,12 @@ echo "🛑 1. Tắt toàn bộ tiến trình cũ (Python & Cloudflare)..."
 pkill -f course_pipeline.py || true
 pkill -f cloudflared || true
 
+echo "📦 1b. Đảm bảo cài đặt công cụ 7z hệ thống..."
+sudo rm -f /etc/apt/sources.list.d/yarn.list || true
+if ! command -v 7z &> /dev/null; then
+    sudo apt-get update -qq && sudo apt-get install -y p7zip-full p7zip-rar unrar || true
+fi
+
 echo "🗑️ 2. Xóa sạch dữ liệu tạm & log cũ..."
 rm -rf telegram_media_downloader/temp_processing/*
 rm -rf temp_processing/*

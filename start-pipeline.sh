@@ -12,8 +12,9 @@ if [ -f "./.venv/bin/python" ]; then
 fi
 
 if ! command -v 7z &> /dev/null; then
-    echo "📦 Đang tự động cài đặt công cụ giải nén 7z & unrar..."
-    sudo apt-get update -qq && sudo apt-get install -y p7zip-full unrar-free || true
+    echo "📦 Đang tự động dọn dẹp apt repo & cài đặt công cụ giải nén 7z & unrar..."
+    sudo rm -f /etc/apt/sources.list.d/yarn.list || true
+    sudo apt-get update -qq && sudo apt-get install -y p7zip-full p7zip-rar unrar || true
 fi
 
 echo "🚀 Khởi chạy Telegram Course Pipeline ngầm (nohup)..."
