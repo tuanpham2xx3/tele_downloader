@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RcloneDest = "gdrive:/COURSES_FOLDER",
+    [string]$RcloneDest = "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:",
     [int]$Port = 5000
 )
 

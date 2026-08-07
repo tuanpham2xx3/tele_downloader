@@ -3,7 +3,7 @@
 
 PYTHON_BIN="python3"
 SCRIPT_PATH="./telegram_media_downloader/course_pipeline.py"
-RCLONE_DEST="gdrive:/COURSES_FOLDER"
+RCLONE_DEST="gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
 PORT=5000
 
 if [ -f "./.venv/bin/python" ]; then
