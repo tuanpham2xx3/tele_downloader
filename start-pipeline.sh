@@ -11,6 +11,11 @@ if [ -f "./.venv/bin/python" ]; then
     PYTHON_BIN="./.venv/bin/python"
 fi
 
+if ! command -v 7z &> /dev/null; then
+    echo "📦 Đang tự động cài đặt công cụ giải nén 7z & unrar..."
+    sudo apt-get update -qq && sudo apt-get install -y p7zip-full unrar-free || true
+fi
+
 echo "🚀 Khởi chạy Telegram Course Pipeline ngầm (nohup)..."
 sudo apt-get update -qq && sudo apt-get install -y p7zip-full unrar-free || true
 pkill -f course_pipeline.py || true

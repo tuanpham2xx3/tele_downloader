@@ -286,9 +286,9 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
         return False
 
     # 1. Ưu tiên 7z/7za (Xử lý 99.9% định dạng bao gồm .rar, .zip, .7z, multi-part RAR)
-    cmd_7z = shutil.which("7z") or shutil.which("7za") or "/usr/bin/7z"
+    cmd_7z = shutil.which("7z") or shutil.which("7za") or "7z"
     try:
-        cmd = [cmd_7z if cmd_7z else "7z", "x", "-y", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        cmd = [cmd_7z, "x", "-y", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
         if res.returncode == 0:
             return True
