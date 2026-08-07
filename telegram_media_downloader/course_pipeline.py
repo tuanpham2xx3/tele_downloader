@@ -349,12 +349,19 @@ d.scrollTop=d.scrollHeight}catch(e){}}f();setInterval(f,2000);</script></body></
 
 def start_web_log_server(port: int = 5000):
     def run_server():
-        try:
-            server = ReusableHTTPServer(("0.0.0.0", port), WebLogHandler)
-            log(f"Đã khởi động Web Log Server tại http://0.0.0.0:{port}", "INFO")
-            server.serve_forever()
-        except Exception as e:
-            log(f"Lỗi khởi động Web Log Server trên port {port}: {e}", "ERROR")
+        import time
+        for attempt in range(5):
+            try:
+                server = ReusableHTTPServer(("0.0.0.0", port), WebLogHandler)
+                log(f"Đã khởi động Web Log Server tại http://0.0.0.0:{port}", "INFO")
+                server.serve_forever()
+                return
+            except OSError as e:
+                if attempt < 4:
+                    log(f"Port {port} bận ({e}), thử lại sau 2s... (lần {attempt+1}/5)", "WARN")
+                    time.sleep(2)
+                else:
+                    log(f"Lỗi khởi động Web Log Server trên port {port}: {e}", "ERROR")
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()

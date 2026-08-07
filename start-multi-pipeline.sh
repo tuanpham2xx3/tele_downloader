@@ -5,7 +5,8 @@
 # Acc 2: Lắng nghe relay group -5040203514, tải & upload
 # Acc 3: Lắng nghe relay group -5281140814, tải & upload
 
-set -e
+# Không dùng set -e — cho phép tựng lệnh fail mà không tắt script
+set +e
 
 PYTHON_BIN="python3"
 PIPELINE_SCRIPT="./telegram_media_downloader/course_pipeline.py"
@@ -26,11 +27,16 @@ if ! command -v 7z &> /dev/null; then
     sudo apt-get update -qq && sudo apt-get install -y p7zip-full p7zip-rar unrar || true
 fi
 
-# Kill triệt để các process cũ giải phóng port 5000 và file session
+# Kill triệt để các process cũ và giải phóng port 5000-5003
 pkill -9 -f course_pipeline.py || true
 pkill -9 -f relay_pipeline.py  || true
 pkill -9 -f cloudflared        || true
-sleep 2
+# Force kill bất kỳ process nào đang giữ port 5000-5003
+for port in 5000 5001 5002 5003; do
+    pid=$(lsof -ti tcp:$port 2>/dev/null || true)
+    [ -n "$pid" ] && kill -9 $pid 2>/dev/null || true
+done
+sleep 3
 
 echo ""
 echo "=================================================="
