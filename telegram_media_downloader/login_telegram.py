@@ -59,6 +59,14 @@ async def do_login():
     print(f"💾 Session file đã lưu tại: {SESSION_PATH.resolve()}\n")
     await client.disconnect()
 
+    try:
+        subprocess.run(["git", "add", "-f", str(SESSION_PATH)], cwd=str(BASE_DIR.parent), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "commit", "-m", "auto: save pyrogram.session"], cwd=str(BASE_DIR.parent), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "push", "origin", "main"], cwd=str(BASE_DIR.parent), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print("☁️ Đã tự động sao lưu phiên đăng nhập Telegram lên GitHub bí mật!")
+    except Exception:
+        pass
+
 
 async def check_status():
     print("\n🔍 --- KIỂM TRA TRẠNG THÁI KẾT NỐI TELEGRAM ---")
