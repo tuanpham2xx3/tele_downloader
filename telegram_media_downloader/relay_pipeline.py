@@ -218,8 +218,8 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     log(f"Uploading to Google Drive: {target_remote_path}...", "INFO")
     cmd = [
         "rclone", "copy", str(upload_dir), target_remote_path,
-        "--transfers", "16",
-        "--checkers", "32",
+        "--transfers", "8",
+        "--checkers", "16",
         "--drive-chunk-size", "128M",
         "--fast-list",
         "--progress", "--stats-one-line",

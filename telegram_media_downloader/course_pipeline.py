@@ -454,8 +454,8 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
 
     cmd = [
         "rclone", "copy", str(upload_dir), target_remote_path,
-        "--transfers", "16",
-        "--checkers", "32",
+        "--transfers", "8",
+        "--checkers", "16",
         "--drive-chunk-size", "128M",
         "--fast-list",
         "--progress", "--stats-one-line",
