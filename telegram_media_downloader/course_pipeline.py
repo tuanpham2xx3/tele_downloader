@@ -746,8 +746,8 @@ async def main():
 
         for idx, (course_title, files) in enumerate(courses_map, 1):
             current_status = csv_status.get(course_title, "PENDING")
-            if current_status == "COMPLETED":
-                log(f"⏭ Khóa [{course_title}] COMPLETED trong CSV, BỎ QUA.", "WARN")
+            if current_status in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3"):
+                log(f"⏭ Khóa [{course_title}] status={current_status} trong CSV, BỎ QUA không gửi lại.", "WARN")
                 continue
 
             if check_rclone_folder_exists(rclone_parent, course_title):

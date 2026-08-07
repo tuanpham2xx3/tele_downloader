@@ -247,6 +247,31 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
 # ==========================================
 # MAIN RELAY PIPELINE
 # ==========================================
+CSV_PATH = BASE_DIR / "full_hoahoc.csv"
+
+def update_csv_status(title: str, status: str):
+    rows = []
+    found = False
+    if CSV_PATH.exists():
+        with open(CSV_PATH, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                if row[0].strip() == title.strip():
+                    rows.append([row[0].strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+                    found = True
+                else:
+                    rows.append(row)
+
+    if not found:
+        rows.append([title.strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+
+    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(rows)
+
+
 async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                                 rclone_parent: str, log_path: Path):
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
@@ -290,13 +315,16 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     if not download_success:
         log(f"[RELAY] ✘ Lỗi tải file cho khóa {course_title}. Bỏ qua.", "ERROR", log_path)
         shutil.rmtree(str(course_dir), ignore_errors=True)
+        update_csv_status(course_title, "FAILED_DOWNLOAD")
         return
 
     ok = repackage_and_upload(course_dir, upload_dir, rclone_parent, course_title)
     shutil.rmtree(str(course_dir), ignore_errors=True)
     if ok:
+        update_csv_status(course_title, "COMPLETED")
         log(f"🎉 [RELAY] HOÀN THÀNH: {course_title}\n", "SUCCESS", log_path)
     else:
+        update_csv_status(course_title, "FAILED_RCLONE")
         log(f"[RELAY] ✘ Upload thất bại cho khóa {course_title}.", "ERROR", log_path)
 
 
