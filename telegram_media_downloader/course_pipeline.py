@@ -358,9 +358,17 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
     sanitized_folder = sanitize_name(course_title)
     target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized_folder}"
 
-    log(f"Đang tải lên Google Drive qua Rclone: {target_remote_path}...", "INFO")
+    log(f"Đang tải lên Google Drive qua Rclone (8 luồng song song, 64M chunk): {target_remote_path}...", "INFO")
 
-    cmd = ["rclone", "copy", str(upload_dir), target_remote_path, "--progress", "--stats-one-line", "--no-update-modtime"]
+    cmd = [
+        "rclone", "copy", str(upload_dir), target_remote_path,
+        "--transfers", "8",
+        "--checkers", "16",
+        "--drive-chunk-size", "64M",
+        "--fast-list",
+        "--progress", "--stats-one-line",
+        "--no-update-modtime"
+    ]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in process.stdout:
