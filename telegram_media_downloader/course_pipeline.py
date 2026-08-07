@@ -187,7 +187,7 @@ def sanitize_name(name: str) -> str:
 def is_metadata_line(line: str) -> bool:
     if not line:
         return True
-    clean = re.sub(r'^[\p{Emoji}\p{Symbol}\p{Punctuation}\s]+', '', line, flags=re.UNICODE).strip()
+    clean = re.sub(r'^[^\w\s]+', '', line).strip()
     if not clean:
         return True
     if re.match(r'^(artist|artist name|audio|subtitles?|legendas|course material|recursos adicionales|hashtag|for files|get files|publisher|language|format|size|duration)\b', clean, re.I):
