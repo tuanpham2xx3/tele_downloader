@@ -372,6 +372,50 @@ def check_rclone_folder_exists(rclone_parent: str, course_title: str) -> bool:
     return False
 
 
+async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 16) -> None:
+    file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
+    if not file_size or file_size < 5 * 1024 * 1024:
+        await client.download_media(msg, file=str(save_path))
+        return
+
+    chunk_size = 512 * 1024
+    total_chunks = (file_size + chunk_size - 1) // chunk_size
+
+    temp_path = save_path.with_suffix(save_path.suffix + ".tmp")
+    with open(temp_path, "wb") as f:
+        f.truncate(file_size)
+
+    semaphore = asyncio.Semaphore(workers)
+
+    async def download_part(chunk_index: int):
+        async with semaphore:
+            offset = chunk_index * chunk_size
+            limit = min(chunk_size, file_size - offset)
+            for attempt in range(3):
+                try:
+                    data = await client.download_file(msg.media, offset=offset, limit=limit)
+                    if data:
+                        with open(temp_path, "r+b") as f:
+                            f.seek(offset)
+                            f.write(data)
+                        return
+                except Exception:
+                    await asyncio.sleep(0.3)
+
+    tasks = [download_part(i) for i in range(total_chunks)]
+    await asyncio.gather(*tasks)
+
+    if temp_path.exists() and temp_path.stat().st_size == file_size:
+        temp_path.replace(save_path)
+    else:
+        await client.download_media(msg, file=str(save_path))
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+
+
 # ==========================================
 # MAIN PIPELINE WORKFLOW
 # ==========================================
