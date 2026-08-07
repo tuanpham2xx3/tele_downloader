@@ -480,19 +480,33 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
         return False
 
 
+_remote_folders_cache = None
+
+def get_all_remote_folders(rclone_parent: str) -> set:
+    global _remote_folders_cache
+    if _remote_folders_cache is not None:
+        return _remote_folders_cache
+
+    log(f"⚡ Đang quét 1 lần duy nhất toàn bộ thư mục đã có trên Google Drive...", "INFO")
+    cmd = ["rclone", "lsf", rclone_parent, "--dirs-only", "--max-depth", "1", "--fast-list"]
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+        if res.returncode == 0:
+            folders = set(line.strip().rstrip('/') for line in res.stdout.splitlines() if line.strip())
+            _remote_folders_cache = folders
+            log(f"✔ Đã quét xong! Tìm thấy {len(folders)} thư mục đã có sẵn trên Google Drive.", "SUCCESS")
+            return _remote_folders_cache
+    except Exception as e:
+        log(f"Cảnh báo khi quét danh sách thư mục Google Drive: {e}", "WARN")
+
+    _remote_folders_cache = set()
+    return _remote_folders_cache
+
+
 def check_rclone_folder_exists(rclone_parent: str, course_title: str) -> bool:
     sanitized_folder = sanitize_name(course_title)
-    target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized_folder}"
-
-    log(f"Đang kiểm tra tồn tại trên Rclone Google Drive: {target_remote_path}...", "INFO")
-    cmd = ["rclone", "lsf", target_remote_path, "--max-depth", "1"]
-    try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
-        if res.returncode == 0 and res.stdout.strip():
-            return True
-    except Exception as e:
-        log(f"Cảnh báo khi kiểm tra rclone lsf: {e}", "WARN")
-    return False
+    existing_folders = get_all_remote_folders(rclone_parent)
+    return sanitized_folder in existing_folders
 
 
 async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 16) -> None:
