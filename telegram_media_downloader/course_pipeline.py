@@ -78,6 +78,27 @@ def log(msg: str, level: str = "INFO"):
 # ==========================================
 LOG_PATH_ACC2 = BASE_DIR.parent / "pipeline_acc2.log"
 LOG_PATH_ACC3 = BASE_DIR.parent / "pipeline_acc3.log"
+LOG_PATH_DISPATCHER = BASE_DIR.parent / "pipeline_dispatcher.log"
+
+dispatcher_log_history: List[str] = []
+
+def log_dispatcher(msg: str, level: str = "INFO"):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted = f"[{timestamp}] [{level}] {msg}"
+    dispatcher_log_history.append(formatted)
+    if len(dispatcher_log_history) > 2000:
+        dispatcher_log_history.pop(0)
+
+    # Ghi vào file log riêng của Dispatcher
+    try:
+        with open(LOG_PATH_DISPATCHER, "a", encoding="utf-8") as f:
+            f.write(formatted + "\n")
+    except Exception:
+        pass
+
+    # Đồng thời in ra console với màu tím / cyan
+    color = "magenta" if level == "SUCCESS" else "yellow" if level == "WARN" else "red" if level == "ERROR" else "cyan"
+    console.print(f"[{color}]{formatted}[/{color}]")
 
 def _read_log_tail(log_path: Path, max_lines: int = 500) -> str:
     if log_path.exists():
@@ -103,14 +124,14 @@ class WebLogHandler(BaseHTTPRequestHandler):
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>🚀 Pipeline Monitor - 3 Tài Khoản</title>
+    <title>🚀 Pipeline Monitor - 4 Bảng Điều Khiển</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #0d1117; color: #c9d1d9; font-family: ui-sans-serif, system-ui, sans-serif; padding: 16px; height: 100vh; display: flex; flex-direction: column; }
         h1 { color: #58a6ff; font-size: 18px; margin-bottom: 12px; }
         .tabs { display: flex; gap: 4px; margin-bottom: 0; }
         .tab {
-            padding: 8px 20px; border-radius: 8px 8px 0 0; cursor: pointer;
+            padding: 8px 18px; border-radius: 8px 8px 0 0; cursor: pointer;
             font-size: 13px; font-weight: bold; border: 1px solid #30363d;
             border-bottom: none; background: #161b22; color: #8b949e;
             transition: all 0.15s;
@@ -120,6 +141,7 @@ class WebLogHandler(BaseHTTPRequestHandler):
         .tab.acc1 { border-top: 2px solid #3fb950; }
         .tab.acc2 { border-top: 2px solid #58a6ff; }
         .tab.acc3 { border-top: 2px solid #f78166; }
+        .tab.disp { border-top: 2px solid #d2a8ff; }
         .panel {
             display: none; background: #161b22; border: 1px solid #30363d;
             border-radius: 0 8px 8px 8px; padding: 14px; flex: 1;
@@ -154,10 +176,12 @@ class WebLogHandler(BaseHTTPRequestHandler):
     <div class="tab acc1 active" onclick="switchTab(0)">🟢 Acc 1 (Master)</div>
     <div class="tab acc2"        onclick="switchTab(1)">🔵 Acc 2 (Relay)</div>
     <div class="tab acc3"        onclick="switchTab(2)">🟠 Acc 3 (Relay)</div>
+    <div class="tab disp"        onclick="switchTab(3)">🟣 🛰️ Dispatcher (Điều Phối)</div>
 </div>
 <div class="panel active" id="panel0">Đang tải log Acc 1...</div>
 <div class="panel"        id="panel1">Đang tải log Acc 2...</div>
 <div class="panel"        id="panel2">Đang tải log Acc 3...</div>
+<div class="panel"        id="panel3">Đang tải log Dispatcher...</div>
 
 <script>
 let currentTab = 0;
@@ -185,9 +209,10 @@ async function fetchPanel(url, panelId) {
     } catch(e) {}
 }
 function fetchAll() {
-    fetchPanel('/api/logs',      'panel0');
-    fetchPanel('/api/logs/acc2', 'panel1');
-    fetchPanel('/api/logs/acc3', 'panel2');
+    fetchPanel('/api/logs',            'panel0');
+    fetchPanel('/api/logs/acc2',       'panel1');
+    fetchPanel('/api/logs/acc3',       'panel2');
+    fetchPanel('/api/logs/dispatcher', 'panel3');
 }
 fetchAll();
 setInterval(fetchAll, 2500);
@@ -213,6 +238,13 @@ setInterval(fetchAll, 2500);
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(_read_log_tail(LOG_PATH_ACC3).encode("utf-8"))
+
+        elif self.path == "/api/logs/dispatcher":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            content = "\n".join(dispatcher_log_history) if dispatcher_log_history else _read_log_tail(LOG_PATH_DISPATCHER)
+            self.wfile.write(content.encode("utf-8"))
 
         elif self.path == "/api/download-log":
             self.send_response(200)
@@ -240,8 +272,44 @@ setInterval(fetchAll, 2500);
             self.send_error(404)
 
 
-class ReusableHTTPServer(HTTPServer):
-    allow_reuse_address = True
+def start_dispatcher_web_log_server(port: int = 5003):
+    class DispatcherWebLogHandler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            return
+
+        def do_GET(self):
+            if self.path in ("/", "/index.html"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                html = """<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>🛰️ Dispatcher Log Monitor</title>
+<style>body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;padding:16px}
+h1{color:#d2a8ff;font-size:18px;margin-bottom:12px}#logs{background:#161b22;padding:14px;border-radius:8px;border:1px solid #30363d;white-space:pre-wrap;height:85vh;overflow-y:auto;font-size:13px;line-height:1.6}
+.SUCCESS{color:#3fb950;font-weight:bold}.WARN{color:#d29922}.ERROR{color:#f85149;font-weight:bold}.INFO{color:#58a6ff}
+</style></head><body><h1>🛰️ Dispatcher & Supervisor Log Monitor (Port 5003)</h1><div id="logs"></div>
+<script>async function f(){try{const r=await fetch('/logs');const t=await r.text();const d=document.getElementById('logs');
+d.innerHTML=t.replace(/\[SUCCESS\]/g,'<span class="SUCCESS">[SUCCESS]</span>').replace(/\[ERROR\]/g,'<span class="ERROR">[ERROR]</span>').replace(/\[WARN\]/g,'<span class="WARN">[WARN]</span>').replace(/\[INFO\]/g,'<span class="INFO">[INFO]</span>');
+d.scrollTop=d.scrollHeight}catch(e){}}f();setInterval(f,2000);</script></body></html>"""
+                self.wfile.write(html.encode("utf-8"))
+            elif self.path == "/logs":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                content = "\n".join(dispatcher_log_history) if dispatcher_log_history else _read_log_tail(LOG_PATH_DISPATCHER)
+                self.wfile.write(content.encode("utf-8"))
+            else:
+                self.send_error(404)
+
+    def run_server():
+        try:
+            server = ReusableHTTPServer(("0.0.0.0", port), DispatcherWebLogHandler)
+            log(f"Đã khởi động Dispatcher Web Log Server tại http://0.0.0.0:{port}", "INFO")
+            server.serve_forever()
+        except Exception as e:
+            log(f"Cảnh báo khởi động Dispatcher Web Log Server port {port}: {e}", "WARN")
+
+    t = threading.Thread(target=run_server, daemon=True)
+    t.start()
 
 
 def start_web_log_server(port: int = 5000):
@@ -574,8 +642,9 @@ async def main():
     parser.add_argument("--relay-acc3", help="Relay Group ID cho Acc 3 (VD: -5281140814)", type=int, default=None)
     args = parser.parse_args()
 
-    # Nạp Web Log Server
+    # Nạp Web Log Servers (Port 5000 Dashboard chính, Port 5003 Dispatcher riêng)
     start_web_log_server(args.port)
+    start_dispatcher_web_log_server(5003)
     log("==========================================", "INFO")
     log("🚀 Bắt đầu quy trình Telegram Course Pipeline", "SUCCESS")
     log("==========================================", "INFO")
@@ -712,7 +781,9 @@ async def main():
     # ── Dispatcher Giám Sát & Điều Phối Liên Tục ─────────────
     async def continuous_dispatcher():
         nonlocal acc2_current_course, acc3_current_course
-        log("🚀 [DISPATCHER] Khởi chạy Bộ Giám Sát & Điều Phối Liên Tục 3 Worker...", "SUCCESS")
+        log_msg = "🚀 [DISPATCHER] Khởi chạy Bộ Giám Sát & Điều Phối Liên Tục 3 Worker..."
+        log(log_msg, "SUCCESS")
+        log_dispatcher(log_msg, "SUCCESS")
 
         while True:
             latest_csv = load_csv_status()
@@ -721,14 +792,18 @@ async def main():
             if relay_acc2 and acc2_current_course:
                 st2 = latest_csv.get(normalize_title(acc2_current_course), "FORWARDED_ACC2")
                 if st2 != "FORWARDED_ACC2":
-                    log(f"✔ [DISPATCHER] 🔵 Acc 2 đã xong [{acc2_current_course}] (status={st2})! Sẵn sàng nhận khóa tiếp theo.", "SUCCESS")
+                    msg = f"✔ [DISPATCHER] 🔵 Acc 2 đã xong [{acc2_current_course}] (status={st2})! Sẵn sàng nhận khóa tiếp theo."
+                    log(msg, "SUCCESS")
+                    log_dispatcher(msg, "SUCCESS")
                     acc2_current_course = None
 
             # 2. Giám sát trạng thái Acc 3
             if relay_acc3 and acc3_current_course:
                 st3 = latest_csv.get(normalize_title(acc3_current_course), "FORWARDED_ACC3")
                 if st3 != "FORWARDED_ACC3":
-                    log(f"✔ [DISPATCHER] 🟠 Acc 3 đã xong [{acc3_current_course}] (status={st3})! Sẵn sàng nhận khóa tiếp theo.", "SUCCESS")
+                    msg = f"✔ [DISPATCHER] 🟠 Acc 3 đã xong [{acc3_current_course}] (status={st3})! Sẵn sàng nhận khóa tiếp theo."
+                    log(msg, "SUCCESS")
+                    log_dispatcher(msg, "SUCCESS")
                     acc3_current_course = None
 
             # 3. Phân công cho Acc 1 ngay khi Acc 1 rảnh
@@ -736,7 +811,9 @@ async def main():
                 item = await get_next_unprocessed_course()
                 if item:
                     idx, c_title, c_files = item
-                    log(f"🟢 [DISPATCHER] Acc 1 rảnh -> Giao khóa [{c_title}] vào Acc 1 Worker Queue", "INFO")
+                    msg = f"🟢 [DISPATCHER] Acc 1 rảnh -> Giao khóa [{c_title}] vào Acc 1 Worker Queue"
+                    log(msg, "INFO")
+                    log_dispatcher(msg, "INFO")
                     await acc1_queue.put(item)
 
             # 4. Phân công cho Acc 2 ngay khi Acc 2 rảnh
@@ -745,7 +822,9 @@ async def main():
                 if item:
                     idx, c_title, c_files = item
                     clean_t = normalize_title(c_title)
-                    log(f"🔵 [DISPATCHER] Acc 2 rảnh -> Forward khóa [{clean_t}] ({len(c_files)} file) sang Group Acc 2 ({relay_acc2})...", "INFO")
+                    msg = f"🔵 [DISPATCHER] Acc 2 rảnh -> Forward khóa [{clean_t}] ({len(c_files)} file) sang Group Acc 2 ({relay_acc2})..."
+                    log(msg, "INFO")
+                    log_dispatcher(msg, "INFO")
                     fwd_ok = await forward_course_to_relay(client, relay_acc2, c_title, c_files)
                     if fwd_ok:
                         update_csv_status(c_title, "FORWARDED_ACC2")
@@ -759,7 +838,9 @@ async def main():
                 if item:
                     idx, c_title, c_files = item
                     clean_t = normalize_title(c_title)
-                    log(f"🟠 [DISPATCHER] Acc 3 rảnh -> Forward khóa [{clean_t}] ({len(c_files)} file) sang Group Acc 3 ({relay_acc3})...", "INFO")
+                    msg = f"🟠 [DISPATCHER] Acc 3 rảnh -> Forward khóa [{clean_t}] ({len(c_files)} file) sang Group Acc 3 ({relay_acc3})..."
+                    log(msg, "INFO")
+                    log_dispatcher(msg, "INFO")
                     fwd_ok = await forward_course_to_relay(client, relay_acc3, c_title, c_files)
                     if fwd_ok:
                         update_csv_status(c_title, "FORWARDED_ACC3")
@@ -769,8 +850,10 @@ async def main():
 
             # Kiểm tra xem toàn bộ danh sách đã hoàn thành chưa
             if pool_idx >= len(pending_pool) and acc1_queue.empty() and not acc1_is_busy and not acc2_current_course and not acc3_current_course:
-                log("🎉 [DISPATCHER] Toàn bộ các khóa học đã được phân công và xử lý hoàn tất!", "SUCCESS")
-                await acc1_queue.put(None)  # Báo hiệu cho worker kết thúc
+                done_msg = "🎉 [DISPATCHER] Toàn bộ các khóa học đã được phân công và xử lý hoàn tất!"
+                log(done_msg, "SUCCESS")
+                log_dispatcher(done_msg, "SUCCESS")
+                await acc1_queue.put(None)
                 break
 
             await asyncio.sleep(2)  # Quét và theo dõi liên tục mỗi 2 giây
