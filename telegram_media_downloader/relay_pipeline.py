@@ -463,8 +463,11 @@ async def main():
     log(f"🚀 Relay Pipeline khởi động | Session: {args.session} | Group: {args.group}", "SUCCESS", log_path)
 
     # Telegram credentials
-    api_id_val   = os.environ.get("TELERECON_API_ID", "2040")
-    api_hash_val = os.environ.get("TELERECON_API_HASH", "b18441a12607e109d9496d9a244ead1c")
+    api_id_val   = os.environ.get("TELERECON_API_ID", "21724")
+    api_hash_val = os.environ.get("TELERECON_API_HASH", "3e0fe5dadb9b1612e3e5b6d912b72449")
+    if api_id_val == "2040":
+        api_id_val = "21724"
+        api_hash_val = "3e0fe5dadb9b1612e3e5b6d912b72449"
     session_path = str(BASE_DIR / args.session)
 
     # Các lỗi MTProto nghiêm trọng cần reconnect hoàn toàn

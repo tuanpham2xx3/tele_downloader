@@ -744,9 +744,9 @@ async def main():
                     api_id_val = str(data.get("api_id"))
                     api_hash_val = str(data.get("api_hash"))
 
-    if not api_id_val or not api_hash_val or api_id_val == "your_api_id":
-        api_id_val = "2040"
-        api_hash_val = "b18441a12607e109d9496d9a244ead1c"
+    if not api_id_val or not api_hash_val or api_id_val == "your_api_id" or api_id_val == "2040":
+        api_id_val = "21724"
+        api_hash_val = "3e0fe5dadb9b1612e3e5b6d912b72449"
 
     session_path = str(BASE_DIR / "pyrogram.session")
     client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
