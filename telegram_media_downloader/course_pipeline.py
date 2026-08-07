@@ -471,6 +471,20 @@ def update_csv_status(title: str, status: str):
 import zipfile
 
 
+def is_non_header_split_volume(filename: str) -> bool:
+    """
+    Trả về True nếu filename là file phụ trong bộ nén nhiều phần (ví dụ: .z01, .z02, .7z.002, .part02.rar).
+    Những file này không nên giải nén lẻ giữa chừng vì cần file header (.zip, .7z.001, .part01.rar) hoặc cần tải đủ các phần.
+    """
+    if re.search(r'\.z\d+$', filename, re.I):
+        return True
+    if re.search(r'\.part\d+\.rar$', filename, re.I) and not re.search(r'\.part0?1\.rar$', filename, re.I):
+        return True
+    if re.search(r'\.7z\.\d+$', filename, re.I) and not filename.lower().endswith('.7z.001'):
+        return True
+    return False
+
+
 def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
     """
     Hàm giải nén đa định dạng thông minh (ZIP, RAR, 7Z, TAR, RAR giả dạng ZIP):
@@ -485,20 +499,20 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
     cmd_7z = shutil.which("7z") or shutil.which("7za") or "7z"
     try:
         cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=16", f"-o{extracted_dir}", str(file_path)]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
         if res.returncode == 0:
             log(f"✔ 7z đã giải nén thành công: {file_path.name}", "SUCCESS")
             return True
         else:
             err_msg = res.stderr.strip()[:150] or res.stdout.strip()[:150]
             log(f"Cảnh báo 7z ({file_path.name}): exit_code={res.returncode}, msg={err_msg}", "WARN")
-            if "space" in err_msg.lower() or "write error" in err_msg.lower() or res.returncode == 2:
+            if "space" in err_msg.lower() or "write error" in err_msg.lower() or "no space left" in err_msg.lower():
                 # Fallback giải nén sang NVMe SSD đĩa cứng
                 ssd_dir = BASE_DIR / "temp_extract_ssd" / extracted_dir.name
                 ssd_dir.mkdir(parents=True, exist_ok=True)
                 log(f"⚠️ [RAM Disk Full] Chuyển giải nén {file_path.name} sang NVMe SSD ({ssd_dir})...", "WARN")
                 ssd_cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=16", f"-o{ssd_dir}", str(file_path)]
-                ssd_res = subprocess.run(ssd_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+                ssd_res = subprocess.run(ssd_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
                 if ssd_res.returncode == 0:
                     log(f"✔ 7z đã giải nén thành công sang NVMe SSD: {file_path.name}", "SUCCESS")
                     # Copy / Move extracted files sang extracted_dir
@@ -1034,14 +1048,20 @@ async def main():
                             wd_task.cancel()
 
                         log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
-                        if not re.search(r'\.part\d+\.rar$', filename, re.I):
+                        if not is_non_header_split_volume(filename):
                             if extract_single_archive(save_path, extracted_dir):
-                                # Xóa ngay file nén gốc để thu hồi RAM Disk
                                 try:
                                     save_path.unlink()
                                     log(f"  - 🗑️ Đã xóa file nén {filename} để thu hồi RAM Disk", "INFO")
                                 except Exception:
                                     pass
+                                base_stem = re.sub(r'\.(zip|rar|7z)$', '', save_path.name, flags=re.I)
+                                for sub_vol in save_path.parent.glob(f"{base_stem}.z*"):
+                                    try:
+                                        sub_vol.unlink()
+                                        log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO")
+                                    except Exception:
+                                        pass
                     except OSError as oe:
                         if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
                             log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {filename}, đợi 15s giải phóng RAM...", "WARN")
@@ -1050,7 +1070,7 @@ async def main():
                             try:
                                 await asyncio.wait_for(client.download_media(msg, file=str(save_path)), timeout=dl_timeout)
                                 log(f"  - ✔ [TẢI LẠI THÀNH CÔNG] {filename}, ⚡ Giải nén...", "SUCCESS")
-                                if not re.search(r'\.part\d+\.rar$', filename, re.I):
+                                if not is_non_header_split_volume(filename):
                                     if extract_single_archive(save_path, extracted_dir):
                                         try:
                                             save_path.unlink()
@@ -1085,9 +1105,21 @@ async def main():
                 acc1_queue.task_done()
                 continue
 
-            for file_path in archives_dir.glob("*.rar"):
-                if re.search(r'\.part0?1\.rar$', file_path.name, re.I):
-                    extract_single_archive(file_path, extracted_dir)
+            for file_path in archives_dir.glob("*"):
+                if file_path.is_file() and file_path.suffix.lower() in [".rar", ".zip", ".7z"]:
+                    if is_non_header_split_volume(file_path.name):
+                        continue
+                    if extract_single_archive(file_path, extracted_dir):
+                        try:
+                            file_path.unlink()
+                        except Exception:
+                            pass
+                        base_stem = re.sub(r'\.(zip|rar|7z)$', '', file_path.name, flags=re.I)
+                        for sub_vol in file_path.parent.glob(f"{base_stem}.z*"):
+                            try:
+                                sub_vol.unlink()
+                            except Exception:
+                                pass
 
             log("Đóng gói & Phân loại file (.mp4 và Class_Materials.zip)...", "INFO")
             extracted_ok = repackage_extracted(course_dir, upload_dir)

@@ -174,6 +174,20 @@ def get_file_name(msg: Any) -> Optional[str]:
                 return attr.file_name
     return None
 
+def is_non_header_split_volume(filename: str) -> bool:
+    """
+    Trả về True nếu filename là file phụ trong bộ nén nhiều phần (ví dụ: .z01, .z02, .7z.002, .part02.rar).
+    Những file này không nên giải nén lẻ giữa chừng vì cần file header (.zip, .7z.001, .part01.rar) hoặc cần tải đủ các phần.
+    """
+    if re.search(r'\.z\d+$', filename, re.I):
+        return True
+    if re.search(r'\.part\d+\.rar$', filename, re.I) and not re.search(r'\.part0?1\.rar$', filename, re.I):
+        return True
+    if re.search(r'\.7z\.\d+$', filename, re.I) and not filename.lower().endswith('.7z.001'):
+        return True
+    return False
+
+
 def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
     if not file_path.exists() or file_path.stat().st_size == 0:
         log(f"File nén rỗng hoặc không tồn tại: {file_path.name}", "WARN")
@@ -188,7 +202,7 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
         else:
             err_msg = res.stderr.strip()[:150] or res.stdout.strip()[:150]
             log(f"Cảnh báo 7z ({file_path.name}): exit_code={res.returncode}, msg={err_msg}", "WARN")
-            if "space" in err_msg.lower() or "write error" in err_msg.lower() or res.returncode == 2:
+            if "space" in err_msg.lower() or "write error" in err_msg.lower() or "no space left" in err_msg.lower():
                 ssd_dir = BASE_DIR / "temp_extract_ssd" / extracted_dir.name
                 ssd_dir.mkdir(parents=True, exist_ok=True)
                 log(f"⚠️ [RAM Disk Full] Chuyển giải nén {file_path.name} sang NVMe SSD ({ssd_dir})...", "WARN")
@@ -454,14 +468,20 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                 )
                 wd_task.cancel()
                 log(f"  - ✔ [RELAY] Tải xong {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
-                if not re.search(r'\.part\d+\.rar$', fname, re.I):
+                if not is_non_header_split_volume(fname):
                     if extract_single_archive(save_path, extracted_dir):
-                        # Xóa ngay file nén gốc để thu hồi RAM Disk
                         try:
                             save_path.unlink()
                             log(f"  - 🗑️ Đã xóa file nén {fname} để thu hồi RAM Disk", "INFO", log_path)
                         except Exception:
                             pass
+                        base_stem = re.sub(r'\.(zip|rar|7z)$', '', save_path.name, flags=re.I)
+                        for sub_vol in save_path.parent.glob(f"{base_stem}.z*"):
+                            try:
+                                sub_vol.unlink()
+                                log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO", log_path)
+                            except Exception:
+                                pass
             except asyncio.TimeoutError:
                 wd_task.cancel()
                 elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
@@ -475,7 +495,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                     try:
                         await asyncio.wait_for(client.download_media(msg, file=str(save_path)), timeout=dl_timeout)
                         log(f"  - ✔ [RELAY TẢI LẠI THÀNH CÔNG] {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
-                        if not re.search(r'\.part\d+\.rar$', fname, re.I):
+                        if not is_non_header_split_volume(fname):
                             if extract_single_archive(save_path, extracted_dir):
                                 try:
                                     save_path.unlink()
@@ -506,10 +526,21 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         update_csv_status(course_title, "FAILED_DOWNLOAD")
         return
 
-    # Thử giải nén cho các bộ file nén multi-part RAR sau khi đã tải đầy đủ tất cả các part
-    for file_path in archives_dir.glob("*.rar"):
-        if re.search(r'\.part0?1\.rar$', file_path.name, re.I):
-            extract_single_archive(file_path, extracted_dir)
+    for file_path in archives_dir.glob("*"):
+        if file_path.is_file() and file_path.suffix.lower() in [".rar", ".zip", ".7z"]:
+            if is_non_header_split_volume(file_path.name):
+                continue
+            if extract_single_archive(file_path, extracted_dir):
+                try:
+                    file_path.unlink()
+                except Exception:
+                    pass
+                base_stem = re.sub(r'\.(zip|rar|7z)$', '', file_path.name, flags=re.I)
+                for sub_vol in file_path.parent.glob(f"{base_stem}.z*"):
+                    try:
+                        sub_vol.unlink()
+                    except Exception:
+                        pass
 
     ok = repackage_and_upload(course_dir, upload_dir, rclone_parent, course_title)
     shutil.rmtree(str(course_dir), ignore_errors=True)
