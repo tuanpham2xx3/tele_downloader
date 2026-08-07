@@ -411,12 +411,8 @@ async def main():
                     api_hash_val = str(data.get("api_hash"))
 
     if not api_id_val or not api_hash_val or api_id_val == "your_api_id":
-        if (BASE_DIR / "pyrogram.session").exists():
-            api_id_val = "2040"
-            api_hash_val = "b18441a12607e109d9496d9a244ead1c"
-        else:
-            log("Thiếu api_id / api_hash! Vui lòng cấu hình môi trường.", "ERROR")
-            sys.exit(1)
+        api_id_val = "2040"
+        api_hash_val = "b18441a12607e109d9496d9a244ead1c"
 
     session_path = str(BASE_DIR / "pyrogram.session")
     client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))

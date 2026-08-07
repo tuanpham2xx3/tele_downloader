@@ -48,8 +48,6 @@ pip-selfcheck.json
 lib64
 
 #Telegram Sessions
-*.session
-*.session-journal
 
 #Downloaded documents
 documents/
