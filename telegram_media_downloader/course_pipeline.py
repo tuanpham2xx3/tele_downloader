@@ -76,12 +76,26 @@ def log(msg: str, level: str = "INFO"):
 # ==========================================
 # WEB LOG MONITOR (Serves on Port 5000)
 # ==========================================
+LOG_PATH_ACC2 = BASE_DIR / "pipeline_acc2.log"
+LOG_PATH_ACC3 = BASE_DIR / "pipeline_acc3.log"
+
+def _read_log_tail(log_path: Path, max_lines: int = 500) -> str:
+    if log_path.exists():
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+                return "".join(lines[-max_lines:])
+        except Exception:
+            pass
+    return "(Chưa có log)"
+
+
 class WebLogHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         return  # Suppress default HTTP logging
 
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
+        if self.path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -89,62 +103,121 @@ class WebLogHandler(BaseHTTPRequestHandler):
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Telegram Course Pipeline Log Monitor</title>
+    <title>🚀 Pipeline Monitor - 3 Tài Khoản</title>
     <style>
-        body { background: #0d1117; color: #c9d1d9; font-family: ui-sans-serif, system-ui, sans-serif; padding: 20px; }
-        h1 { color: #58a6ff; font-size: 20px; border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-top: 0; }
-        #logs { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 15px; height: 72vh; overflow-y: auto; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.5; }
-        .SUCCESS { color: #3fb950; font-weight: bold; }
-        .WARN { color: #d29922; }
-        .ERROR { color: #f85149; font-weight: bold; }
-        .INFO { color: #58a6ff; }
-        .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
-        button { background: #238636; color: white; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #0d1117; color: #c9d1d9; font-family: ui-sans-serif, system-ui, sans-serif; padding: 16px; height: 100vh; display: flex; flex-direction: column; }
+        h1 { color: #58a6ff; font-size: 18px; margin-bottom: 12px; }
+        .tabs { display: flex; gap: 4px; margin-bottom: 0; }
+        .tab {
+            padding: 8px 20px; border-radius: 8px 8px 0 0; cursor: pointer;
+            font-size: 13px; font-weight: bold; border: 1px solid #30363d;
+            border-bottom: none; background: #161b22; color: #8b949e;
+            transition: all 0.15s;
+        }
+        .tab.active { background: #1f2937; color: #f0f6fc; border-color: #58a6ff; border-bottom-color: #1f2937; }
+        .tab:hover:not(.active) { background: #21262d; color: #c9d1d9; }
+        .tab.acc1 { border-top: 2px solid #3fb950; }
+        .tab.acc2 { border-top: 2px solid #58a6ff; }
+        .tab.acc3 { border-top: 2px solid #f78166; }
+        .panel {
+            display: none; background: #161b22; border: 1px solid #30363d;
+            border-radius: 0 8px 8px 8px; padding: 14px; flex: 1;
+            overflow-y: auto; white-space: pre-wrap;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 12.5px; line-height: 1.6;
+        }
+        .panel.active { display: block; }
+        .controls { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+        button { background: #238636; color: white; border: 0; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; }
         button:hover { background: #2ea043; }
-        button.secondary { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
-        button.secondary:hover { background: #30363d; color: white; }
-        label { margin-left: auto; font-size: 13px; color: #8b949e; cursor: pointer; }
+        button.sec { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
+        button.sec:hover { background: #30363d; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; margin-left: 6px; }
+        .badge.ok { background: #1a4731; color: #3fb950; }
+        label { margin-left: auto; font-size: 12px; color: #8b949e; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        .SUCCESS { color: #3fb950; font-weight: bold; }
+        .WARN    { color: #d29922; }
+        .ERROR   { color: #f85149; font-weight: bold; }
+        .INFO    { color: #58a6ff; }
     </style>
 </head>
 <body>
-    <h1>🚀 Telegram Course Pipeline Live Log Monitor</h1>
-    <div class="controls">
-        <button onclick="fetchLogs()">🔄 Làm mới Logs</button>
-        <button onclick="window.location.href='/api/download-log'" class="secondary">📥 Xuất Log (.txt)</button>
-        <button onclick="window.location.href='/api/download-csv'" class="secondary">📊 Tải CSV Status</button>
-        <label><input type="checkbox" id="autoscroll" checked> Tự động cuộn xuống</label>
-    </div>
-    <div id="logs">Đang kết nối tới Server Logs...</div>
-    <script>
-        async function fetchLogs() {
-            try {
-                const res = await fetch('/api/logs');
-                const text = await res.text();
-                const container = document.getElementById('logs');
-                container.innerHTML = text.replace(/\[SUCCESS\]/g, '<span class="SUCCESS">[SUCCESS]</span>')
-                                          .replace(/\[ERROR\]/g, '<span class="ERROR">[ERROR]</span>')
-                                          .replace(/\[WARN\]/g, '<span class="WARN">[WARN]</span>')
-                                          .replace(/\[INFO\]/g, '<span class="INFO">[INFO]</span>');
-                if (document.getElementById('autoscroll').checked) {
-                    container.scrollTop = container.scrollHeight;
-                }
-            } catch(e){}
+<h1>🚀 Pipeline Monitor &nbsp;<span class="badge ok">LIVE</span></h1>
+<div class="controls">
+    <button onclick="fetchAll()">🔄 Làm mới</button>
+    <button onclick="window.location.href='/api/download-log'" class="sec">📥 Log Acc1</button>
+    <button onclick="window.location.href='/api/download-csv'" class="sec">📊 CSV Status</button>
+    <label><input type="checkbox" id="autoscroll" checked> Tự động cuộn xuống</label>
+</div>
+<div class="tabs">
+    <div class="tab acc1 active" onclick="switchTab(0)">🟢 Acc 1 (Master)</div>
+    <div class="tab acc2"        onclick="switchTab(1)">🔵 Acc 2 (Relay)</div>
+    <div class="tab acc3"        onclick="switchTab(2)">🟠 Acc 3 (Relay)</div>
+</div>
+<div class="panel active" id="panel0">Đang tải log Acc 1...</div>
+<div class="panel"        id="panel1">Đang tải log Acc 2...</div>
+<div class="panel"        id="panel2">Đang tải log Acc 3...</div>
+
+<script>
+let currentTab = 0;
+function colorize(text) {
+    return text
+        .replace(/\[SUCCESS\]/g, '<span class="SUCCESS">[SUCCESS]</span>')
+        .replace(/\[ERROR\]/g,   '<span class="ERROR">[ERROR]</span>')
+        .replace(/\[WARN\]/g,    '<span class="WARN">[WARN]</span>')
+        .replace(/\[INFO\]/g,    '<span class="INFO">[INFO]</span>');
+}
+function switchTab(idx) {
+    document.querySelectorAll('.tab').forEach((t,i)   => t.classList.toggle('active', i===idx));
+    document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i===idx));
+    currentTab = idx;
+}
+async function fetchPanel(url, panelId) {
+    try {
+        const r = await fetch(url);
+        const t = await r.text();
+        const p = document.getElementById(panelId);
+        p.innerHTML = colorize(t.replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+        if (document.getElementById('autoscroll').checked && panelId === 'panel' + currentTab) {
+            p.scrollTop = p.scrollHeight;
         }
-        setInterval(fetchLogs, 2000);
-        fetchLogs();
-    </script>
+    } catch(e) {}
+}
+function fetchAll() {
+    fetchPanel('/api/logs',      'panel0');
+    fetchPanel('/api/logs/acc2', 'panel1');
+    fetchPanel('/api/logs/acc3', 'panel2');
+}
+fetchAll();
+setInterval(fetchAll, 2500);
+</script>
 </body>
 </html>"""
             self.wfile.write(html.encode("utf-8"))
+
         elif self.path == "/api/logs":
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write("\n".join(log_history).encode("utf-8"))
+
+        elif self.path == "/api/logs/acc2":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(_read_log_tail(LOG_PATH_ACC2).encode("utf-8"))
+
+        elif self.path == "/api/logs/acc3":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(_read_log_tail(LOG_PATH_ACC3).encode("utf-8"))
+
         elif self.path == "/api/download-log":
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
-            filename = f"pipeline-log-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
+            filename = f"pipeline-acc1-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.end_headers()
             if LOG_PATH.exists():
@@ -152,6 +225,7 @@ class WebLogHandler(BaseHTTPRequestHandler):
                     self.wfile.write(f.read())
             else:
                 self.wfile.write("\n".join(log_history).encode("utf-8"))
+
         elif self.path == "/api/download-csv":
             self.send_response(200)
             self.send_header("Content-Type", "text/csv; charset=utf-8")
@@ -174,6 +248,7 @@ def start_web_log_server(port: int = 5000):
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()
+
 
 
 # ==========================================
