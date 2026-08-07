@@ -76,8 +76,8 @@ def log(msg: str, level: str = "INFO"):
 # ==========================================
 # WEB LOG MONITOR (Serves on Port 5000)
 # ==========================================
-LOG_PATH_ACC2 = BASE_DIR / "pipeline_acc2.log"
-LOG_PATH_ACC3 = BASE_DIR / "pipeline_acc3.log"
+LOG_PATH_ACC2 = BASE_DIR.parent / "pipeline_acc2.log"
+LOG_PATH_ACC3 = BASE_DIR.parent / "pipeline_acc3.log"
 
 def _read_log_tail(log_path: Path, max_lines: int = 500) -> str:
     if log_path.exists():
