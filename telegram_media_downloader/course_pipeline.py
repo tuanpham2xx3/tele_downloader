@@ -321,47 +321,26 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
     return False
 
 
-# ==========================================
-# STEP 4: ARCHIVE EXTRACTION & RE-PACKAGING
-# ==========================================
-def extract_and_repackage(course_dir: Path, upload_dir: Path) -> bool:
-    archives_dir = course_dir / "archives"
+def repackage_extracted(course_dir: Path, upload_dir: Path) -> bool:
     extracted_dir = course_dir / "extracted"
-    extracted_dir.mkdir(parents=True, exist_ok=True)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    log(f"Bắt đầu giải nén tài nguyên trong {archives_dir.name}...", "INFO")
-
-    archive_files = list(archives_dir.glob("*.rar")) + list(archives_dir.glob("*.zip")) + list(archives_dir.glob("*.7z"))
-    if not archive_files:
-        log("Không tìm thấy file nén trong thư mục archives.", "WARN")
-        return False
-
-    for file_path in archive_files:
-        if re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', file_path.name, re.I):
-            continue
-
-        log(f"Đang giải nén file: {file_path.name}...", "INFO")
-        extract_single_archive(file_path, extracted_dir)
-
     # Phân loại file sau khi giải nén
-    all_files = list(extracted_dir.rglob("*"))
+    all_files = list(extracted_dir.rglob("*")) if extracted_dir.exists() else []
     video_files = [f for f in all_files if f.is_file() and f.suffix.lower() in ('.mp4', '.mkv', '.mov', '.avi')]
     other_files = [f for f in all_files if f.is_file() and f not in video_files]
 
-    log(f"Kết quả giải nén: {len(video_files)} video (.mp4), {len(other_files)} file tài liệu khác.", "SUCCESS")
+    log(f"Kết quả giải nén tổng hợp: {len(video_files)} video (.mp4), {len(other_files)} file tài liệu khác.", "SUCCESS")
 
     # 1. Di chuyển toàn bộ video .mp4 ra thư mục upload
     for vid in video_files:
         dest = upload_dir / vid.name
-        # Tránh ghi đè nếu trùng tên
         if dest.exists():
             dest = upload_dir / f"{vid.stem}_{vid.stat().st_size}{vid.suffix}"
         shutil.move(str(vid), str(dest))
 
     # 2. Nén toàn bộ file còn lại không phải video thành 1 file Class_Materials.zip duy nhất
     if other_files:
-        materials_zip_path = upload_dir / "Class_Materials.zip"
         log("Đang đóng gói tài liệu phụ thành Class_Materials.zip...", "INFO")
         shutil.make_archive(str(upload_dir / "Class_Materials"), 'zip', str(extracted_dir))
 
@@ -537,35 +516,44 @@ async def main():
         upload_dir.mkdir(parents=True, exist_ok=True)
 
 
-        # BƯỚC 3: TẢI TỪNG FILE ĐÍNH KÈM CỦA KHÓA
-        log("BƯỚC 3: Tải file đính kèm của khóa học (16 luồng song song)...", "INFO")
+        # BƯỚC 3 & 4: TẢI VÀ GIẢI NÉN TRỰC TIẾP TỪNG FILE
+        log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp từng file đính kèm...", "INFO")
         download_success = True
+        extracted_dir = course_dir / "extracted"
+        extracted_dir.mkdir(parents=True, exist_ok=True)
+
         for filename, msg in files:
             save_path = archives_dir / filename
             file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
-            if save_path.exists() and save_path.stat().st_size == file_size:
-                log(f"  - File đã tồn tại: {filename}", "INFO")
-                continue
 
             size_mb = file_size / 1024 / 1024 if file_size else 0.0
-            log(f"  - Đang tải [16 luồng]: {filename} ({size_mb:.1f} MB)", "INFO")
+            log(f"  - Đang tải: {filename} ({size_mb:.1f} MB)...", "INFO")
             try:
-                await parallel_download_media(client, msg, save_path, workers=16)
+                await client.download_media(msg, file=str(save_path))
+                # Ngay sau khi tải xong 1 file ➔ Giải nén lập tức!
+                if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
+                    log(f"  - ⚡ Giải nén trực tiếp ngay lập tức: {filename}...", "INFO")
+                    extract_single_archive(save_path, extracted_dir)
             except Exception as e:
-                log(f"Thất bại khi tải {filename}: {e}", "ERROR")
+                log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
                 download_success = False
 
         if not download_success:
-            log(f"Khóa học {course_title} bị lỗi khi tải file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
+            log(f"Khóa học {course_title} bị lỗi khi tải/giải nén file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
             update_csv_status(course_title, "FAILED_DOWNLOAD")
             shutil.rmtree(str(course_dir), ignore_errors=True)
             continue
 
-        # BƯỚC 4: GIẢI NÉN & ĐÓNG GÓI (.MP4 VÀ CLASS_MATERIALS.ZIP)
-        log("BƯỚC 4: Giải nén & Phân loại file...", "INFO")
-        extracted_ok = extract_and_repackage(course_dir, upload_dir)
+        # Thử giải nén lại cho các bộ file nén multi-part RAR nếu có
+        for file_path in archives_dir.glob("*.rar"):
+            if re.search(r'\.part0?1\.rar$', file_path.name, re.I):
+                extract_single_archive(file_path, extracted_dir)
+
+        # Phân loại & Đóng gói sản phẩm
+        log("Đóng gói & Phân loại file (.mp4 và Class_Materials.zip)...", "INFO")
+        extracted_ok = repackage_extracted(course_dir, upload_dir)
         if not extracted_ok:
-            log(f"Lỗi ở bước giải nén cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
+            log(f"Lỗi ở bước đóng gói cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
             update_csv_status(course_title, "FAILED_EXTRACT")
             shutil.rmtree(str(course_dir), ignore_errors=True)
             continue
