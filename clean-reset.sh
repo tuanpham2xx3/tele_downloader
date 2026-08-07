@@ -5,8 +5,9 @@ echo "=========================================================="
 echo "🧹 TELEGRAM COURSE DOWNLOADER - CLEAN RESET SYSTEM"
 echo "=========================================================="
 
-echo "🛑 1. Tắt các tiến trình đang chạy..."
+echo "🛑 1. Tắt toàn bộ tiến trình cũ (Python & Cloudflare)..."
 pkill -f course_pipeline.py || true
+pkill -f cloudflared || true
 
 echo "🗑️ 2. Xóa sạch dữ liệu tạm & log cũ..."
 rm -rf telegram_media_downloader/temp_processing/*
