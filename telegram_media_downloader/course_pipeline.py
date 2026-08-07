@@ -667,13 +667,45 @@ async def main():
     # ------------------------------------------
     # BƯỚC 3, 4, 5, 6: DISPATCHER & WORKER CHẠY SONG SONG
     # ------------------------------------------
-    acc1_local_queue: asyncio.Queue = asyncio.Queue()
+    # Danh sách khóa học cần xử lý (bỏ qua những khóa đã có/đã làm)
+    remaining_courses: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
+    for idx, (c_title, c_files) in enumerate(courses_map, 1):
+        clean_t = normalize_title(c_title)
+        st = csv_status.get(clean_t, "PENDING")
+        if st in ("COMPLETED", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+            continue
+        if check_rclone_folder_exists(rclone_parent, c_title):
+            update_csv_status(c_title, "COMPLETED")
+            continue
+        remaining_courses.append((idx, c_title, c_files))
 
-    async def acc1_worker():
+    log(f"📋 Tổng số khóa cần xử lý thực tế: {len(remaining_courses)}/{len(courses_map)}", "INFO")
+
+    course_idx = 0
+    course_lock = asyncio.Lock()
+
+    async def get_next_course() -> Optional[Tuple[int, str, List[Tuple[str, Any]]]]:
+        nonlocal course_idx
+        async with course_lock:
+            while course_idx < len(remaining_courses):
+                item = remaining_courses[course_idx]
+                course_idx += 1
+                c_title = normalize_title(item[1])
+                st = load_csv_status().get(c_title, "PENDING")
+                if st in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+                    continue
+                if check_rclone_folder_exists(rclone_parent, item[1]):
+                    update_csv_status(item[1], "COMPLETED")
+                    continue
+                return item
+            return None
+
+    # --- Worker Acc 1 (Master Tải Trực Tiếp) ---
+    async def acc1_worker_loop():
         while True:
-            item = await acc1_local_queue.get()
-            if item is None:
-                acc1_local_queue.task_done()
+            item = await get_next_course()
+            if not item:
+                log("🟢 [Acc 1 Worker] Hết khóa học cần xử lý, dừng worker.", "INFO")
                 break
 
             idx, course_title, files = item
@@ -685,15 +717,13 @@ async def main():
             course_dir = TEMP_DIR / sanitize_name(course_title)
             archives_dir = course_dir / "archives"
             upload_dir = course_dir / "upload"
+            extracted_dir = course_dir / "extracted"
 
-            archives_dir.mkdir(parents=True, exist_ok=True)
-            upload_dir.mkdir(parents=True, exist_ok=True)
+            for d in [archives_dir, upload_dir, extracted_dir]:
+                d.mkdir(parents=True, exist_ok=True)
 
             log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (3 file song song cùng lúc)...", "INFO")
             download_success = True
-            extracted_dir = course_dir / "extracted"
-            extracted_dir.mkdir(parents=True, exist_ok=True)
-
             file_semaphore = asyncio.Semaphore(3)
 
             async def process_single_file(filename: str, msg: Any):
@@ -701,26 +731,36 @@ async def main():
                 save_path = archives_dir / filename
                 file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
                 size_mb = file_size / 1024 / 1024 if file_size else 0.0
+                dl_timeout = 14400 if size_mb > 2000 else 7200
 
                 async with file_semaphore:
                     log(f"  - 🚀 Bắt đầu tải [3 file song song]: {filename} ({size_mb:.1f} MB)...", "INFO")
                     try:
-                        await client.download_media(msg, file=str(save_path))
+                        await asyncio.wait_for(
+                            client.download_media(msg, file=str(save_path)),
+                            timeout=dl_timeout
+                        )
                         log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
                         if not re.search(r'\.part\d+\.rar$', filename, re.I):
                             extract_single_archive(save_path, extracted_dir)
+                    except asyncio.TimeoutError:
+                        log(f"  - ✘ TIMEOUT sau {dl_timeout//3600}h khi tải {filename}, bỏ qua.", "ERROR")
+                        download_success = False
                     except Exception as e:
                         log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
                         download_success = False
 
             tasks = [process_single_file(fn, m) for fn, m in files]
-            await asyncio.gather(*tasks)
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks), timeout=21600)
+            except asyncio.TimeoutError:
+                log(f"✘ TIMEOUT 6h toàn khóa {course_title}, dừng xử lý.", "ERROR")
+                download_success = False
 
             if not download_success:
                 log(f"Khóa học {course_title} bị lỗi khi tải/giải nén file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
                 update_csv_status(course_title, "FAILED_DOWNLOAD")
                 shutil.rmtree(str(course_dir), ignore_errors=True)
-                acc1_local_queue.task_done()
                 continue
 
             for file_path in archives_dir.glob("*.rar"):
@@ -733,7 +773,6 @@ async def main():
                 log(f"Lỗi ở bước đóng gói cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
                 update_csv_status(course_title, "FAILED_EXTRACT")
                 shutil.rmtree(str(course_dir), ignore_errors=True)
-                acc1_local_queue.task_done()
                 continue
 
             log("BƯỚC 5: Upload lên Google Drive qua Rclone...", "INFO")
@@ -742,7 +781,6 @@ async def main():
                 log(f"Thất bại khi Upload Rclone cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
                 update_csv_status(course_title, "FAILED_RCLONE")
                 shutil.rmtree(str(course_dir), ignore_errors=True)
-                acc1_local_queue.task_done()
                 continue
 
             log("BƯỚC 6: Kiểm tra, Xóa tài nguyên tạm trên Ubuntu & Lưu CSV status...", "SUCCESS")
@@ -753,96 +791,84 @@ async def main():
                 log(f"Cảnh báo khi xóa thư mục tạm: {e}", "WARN")
 
             update_csv_status(course_title, "COMPLETED")
-            csv_status[course_title] = "COMPLETED"
             log(f"🎉 HOÀN THÀNH TOÀN BỘ WORKFLOW CHO KHÓA: {course_title}\n", "SUCCESS")
-            acc1_local_queue.task_done()
 
-    async def dispatcher():
-        num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
-        pending_slot_counter = 0
+    # --- Coordinator Acc 2 (Độc Lập) ---
+    async def acc2_coordinator_loop():
+        if not relay_acc2:
+            return
+        while True:
+            item = await get_next_course()
+            if not item:
+                log("🔵 [Acc 2 Coordinator] Hết khóa học cần xử lý, dừng coordinator.", "INFO")
+                break
 
-        acc2_current_course = None
-        acc3_current_course = None
-
-        log("🚀 Dispatcher đã kích hoạt chế độ Điều hướng 1 khóa/acc (Chờ làm xong mới gửi tiếp)...", "SUCCESS")
-
-        for idx, (course_title, files) in enumerate(courses_map, 1):
+            idx, course_title, files = item
             clean_title = normalize_title(course_title)
-
-            # Đọc lại CSV mới nhất để đảm bảo thông tin chính xác
-            latest_csv_status = load_csv_status()
-            current_status = latest_csv_status.get(clean_title, "PENDING")
-
-            if current_status in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
-                log(f"⏭ Khóa [{clean_title}] status={current_status} trong CSV, BỎ QUA.", "WARN")
+            log(f"🔵 [Dispatcher] Giao khóa [{clean_title}] ({len(files)} file) -> Group Acc 2 ({relay_acc2})...", "INFO")
+            fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
+            if not fwd_ok:
+                update_csv_status(course_title, "FAILED_FORWARD")
                 continue
 
-            if check_rclone_folder_exists(rclone_parent, course_title):
-                log(f"⏭ Khóa [{clean_title}] TỒN TẠI trên Google Drive, BỎ QUA.", "SUCCESS")
-                update_csv_status(course_title, "COMPLETED")
+            update_csv_status(course_title, "FORWARDED_ACC2")
+
+            # Chờ Acc 2 xử lý xong độc lập (không chặn Acc 1 và Acc 3)
+            log(f"⏳ [Dispatcher] Acc 2 đang xử lý [{clean_title}], chờ Acc 2 hoàn tất...", "INFO")
+            waited = 0
+            MAX_WAIT = 4 * 3600  # Tối đa 4 giờ
+            while waited < MAX_WAIT:
+                latest_csv = load_csv_status()
+                st = latest_csv.get(clean_title, "FORWARDED_ACC2")
+                if st != "FORWARDED_ACC2":
+                    log(f"✔ [Dispatcher] Acc 2 đã xong [{clean_title}] (status={st}), bốc khóa tiếp theo!", "SUCCESS")
+                    break
+                await asyncio.sleep(5)
+                waited += 5
+            else:
+                log(f"⚠️ [Dispatcher] Acc 2 chờ quá 4h cho [{clean_title}], bỏ qua và tiếp tục!", "WARN")
+
+    # --- Coordinator Acc 3 (Độc Lập) ---
+    async def acc3_coordinator_loop():
+        if not relay_acc3:
+            return
+        while True:
+            item = await get_next_course()
+            if not item:
+                log("🟠 [Acc 3 Coordinator] Hết khóa học cần xử lý, dừng coordinator.", "INFO")
+                break
+
+            idx, course_title, files = item
+            clean_title = normalize_title(course_title)
+            log(f"🟠 [Dispatcher] Giao khóa [{clean_title}] ({len(files)} file) -> Group Acc 3 ({relay_acc3})...", "INFO")
+            fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
+            if not fwd_ok:
+                update_csv_status(course_title, "FAILED_FORWARD")
                 continue
 
-            slot = pending_slot_counter % num_workers
-            pending_slot_counter += 1
+            update_csv_status(course_title, "FORWARDED_ACC3")
 
-            if slot == 0:
-                log(f"🟢 [Dispatcher] Giao khóa [{clean_title}] -> Acc 1 Queue", "INFO")
-                await acc1_local_queue.put((idx, course_title, files))
+            # Chờ Acc 3 xử lý xong độc lập (không chặn Acc 1 và Acc 2)
+            log(f"⏳ [Dispatcher] Acc 3 đang xử lý [{clean_title}], chờ Acc 3 hoàn tất...", "INFO")
+            waited = 0
+            MAX_WAIT = 4 * 3600  # Tối đa 4 giờ
+            while waited < MAX_WAIT:
+                latest_csv = load_csv_status()
+                st = latest_csv.get(clean_title, "FORWARDED_ACC3")
+                if st != "FORWARDED_ACC3":
+                    log(f"✔ [Dispatcher] Acc 3 đã xong [{clean_title}] (status={st}), bốc khóa tiếp theo!", "SUCCESS")
+                    break
+                await asyncio.sleep(5)
+                waited += 5
+            else:
+                log(f"⚠️ [Dispatcher] Acc 3 chờ quá 4h cho [{clean_title}], bỏ qua và tiếp tục!", "WARN")
 
-            elif slot == 1 and relay_acc2:
-                # CHỜ ACC 2 LÀM XONG KHÓA TRƯỚC RỒI MỚI FORWARD KHÓA TIẾP THEO
-                if acc2_current_course:
-                    log(f"⏳ [Dispatcher] Acc 2 đang bận xử lý [{acc2_current_course}], chờ Acc 2 hoàn tất...", "INFO")
-                    waited = 0
-                    MAX_WAIT = 3 * 3600  # Tối đa chờ 3 giờ
-                    while waited < MAX_WAIT:
-                        latest_csv = load_csv_status()
-                        st = latest_csv.get(acc2_current_course, "FORWARDED_ACC2")
-                        if st != "FORWARDED_ACC2":
-                            log(f"✔ [Dispatcher] Acc 2 đã xong [{acc2_current_course}] (status={st}), gửi khóa tiếp theo!", "SUCCESS")
-                            break
-                        await asyncio.sleep(5)
-                        waited += 5
-                    else:
-                        log(f"⚠️ [Dispatcher] Acc 2 chờ quá 3h cho [{acc2_current_course}], bỏ qua và gửi khóa tiếp theo!", "WARN")
-
-                log(f"🔵 [Dispatcher] Forward 1 khóa duy nhất [{clean_title}] ({len(files)} file) -> Group Acc 2 ({relay_acc2})...", "INFO")
-                fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
-                if fwd_ok:
-                    update_csv_status(course_title, "FORWARDED_ACC2")
-                    acc2_current_course = clean_title
-                else:
-                    update_csv_status(course_title, "FAILED_FORWARD")
-
-            elif slot == 2 and relay_acc3:
-                # CHỜ ACC 3 LÀM XONG KHÓA TRƯỚC RỒI MỚI FORWARD KHÓA TIẾP THEO
-                if acc3_current_course:
-                    log(f"⏳ [Dispatcher] Acc 3 đang bận xử lý [{acc3_current_course}], chờ Acc 3 hoàn tất...", "INFO")
-                    waited = 0
-                    MAX_WAIT = 3 * 3600  # Tối đa chờ 3 giờ
-                    while waited < MAX_WAIT:
-                        latest_csv = load_csv_status()
-                        st = latest_csv.get(acc3_current_course, "FORWARDED_ACC3")
-                        if st != "FORWARDED_ACC3":
-                            log(f"✔ [Dispatcher] Acc 3 đã xong [{acc3_current_course}] (status={st}), gửi khóa tiếp theo!", "SUCCESS")
-                            break
-                        await asyncio.sleep(5)
-                        waited += 5
-                    else:
-                        log(f"⚠️ [Dispatcher] Acc 3 chờ quá 3h cho [{acc3_current_course}], bỏ qua và gửi khóa tiếp theo!", "WARN")
-
-                log(f"🟠 [Dispatcher] Forward 1 khóa duy nhất [{clean_title}] ({len(files)} file) -> Group Acc 3 ({relay_acc3})...", "INFO")
-                fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
-                if fwd_ok:
-                    update_csv_status(course_title, "FORWARDED_ACC3")
-                    acc3_current_course = clean_title
-                else:
-                    update_csv_status(course_title, "FAILED_FORWARD")
-
-        await acc1_local_queue.put(None)  # Sentinel to tell worker dispatcher is finished
-
-    log("🚀 Khởi chạy Dispatcher chia việc + Acc 1 Worker song song...", "SUCCESS")
-    await asyncio.gather(dispatcher(), acc1_worker())
+    log("🚀 Khởi chạy 3 Luồng Độc Lập Song Song (Acc 1 Worker + Acc 2 Coord + Acc 3 Coord)...", "SUCCESS")
+    await asyncio.gather(
+        acc1_worker_loop(),
+        acc2_coordinator_loop(),
+        acc3_coordinator_loop()
+    )
 
     log("\n==========================================", "SUCCESS")
     log("🏁 QUY TRÌNH ĐÃ XỬ LÝ XONG TẤT CẢ CÁC KHÓA HỌC!", "SUCCESS")
