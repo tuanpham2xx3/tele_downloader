@@ -11,3 +11,5 @@ __pycache__/
 telegram-get-files-*.txt
 *.log
 telegram_media_downloader/full_hoahoc.csv
+*.session
+telegram_media_downloader/*.session

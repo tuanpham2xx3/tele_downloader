@@ -114,8 +114,12 @@ fi
 # ── BƯỚC 5: Kiểm tra session file ───────────────────
 echo ""
 echo "=================================================="
-echo "  📋 TRẠNG THÁI SESSION FILE"
+echo "  📋 TRẠNG THÁI SESSION FILE (BẢO VỆ NGOÀI GIT)"
 echo "=================================================="
+mkdir -p ~/.telegram_sessions
+cp telegram_media_downloader/*.session ~/.telegram_sessions/ 2>/dev/null || true
+cp ~/.telegram_sessions/*.session telegram_media_downloader/ 2>/dev/null || true
+
 SESSIONS=("pyrogram" "pyrogram_acc2" "pyrogram_acc3")
 NAMES=("Acc 1 (Master)" "Acc 2 (Relay)" "Acc 3 (Relay)")
 MISSING=()
@@ -125,14 +129,18 @@ for i in "${!SESSIONS[@]}"; do
     name="${NAMES[$i]}"
     f="telegram_media_downloader/${sess}.session"
 
-    # Kiểm tra xem session có thực sự đăng nhập hợp lệ không
+    # Kiểm tra xem session có thực sự đăng nhập hợp lệ không (ưu tiên đọc ~/.telegram_sessions)
     IS_AUTH=$($PYTHON_BIN -c "
 import asyncio, os
+from pathlib import Path
 from telethon import TelegramClient
 async def test():
-    api_id = int(os.environ.get('TELERECON_API_ID', '2040'))
-    api_hash = os.environ.get('TELERECON_API_HASH', 'b18441a12607e109d9496d9a244ead1c')
-    c = TelegramClient('telegram_media_downloader/${sess}', api_id, api_hash)
+    api_id = int(os.environ.get('TELERECON_API_ID', '21724'))
+    api_hash = os.environ.get('TELERECON_API_HASH', '3e0fe5dadb9b1612e3e5b6d912b72449')
+    sp = Path.home() / '.telegram_sessions' / '${sess}'
+    if not (Path.home() / '.telegram_sessions' / '${sess}.session').exists():
+        sp = 'telegram_media_downloader/${sess}'
+    c = TelegramClient(str(sp), api_id, api_hash)
     await c.connect()
     auth = await c.is_user_authorized()
     await c.disconnect()

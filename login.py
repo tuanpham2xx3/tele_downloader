@@ -24,8 +24,15 @@ except ImportError:
 DEFAULT_API_ID   = 21724
 DEFAULT_API_HASH = "3e0fe5dadb9b1612e3e5b6d912b72449"
 
+PERSISTENT_SESS_DIR = Path.home() / ".telegram_sessions"
+PERSISTENT_SESS_DIR.mkdir(parents=True, exist_ok=True)
+
 session_name = sys.argv[1] if len(sys.argv) > 1 else "pyrogram"
-session_path = str(TELE_DIR / session_name)
+if session_name.endswith(".session"):
+    session_name = session_name[:-8]
+
+session_path = str(PERSISTENT_SESS_DIR / session_name)
+local_session_path = str(TELE_DIR / session_name)
 
 env_api_id   = os.environ.get("TELERECON_API_ID")
 env_api_hash = os.environ.get("TELERECON_API_HASH")
@@ -57,8 +64,16 @@ try:
             client.start(phone=get_phone)
             me = client.get_me()
         if me:
+            # Đồng bộ sang cả thư mục cục bộ
+            try:
+                import shutil
+                src_sess = Path(session_path + ".session")
+                if src_sess.exists():
+                    shutil.copy2(src_sess, Path(local_session_path + ".session"))
+            except Exception:
+                pass
             print(f"\n✅ ĐÃ ĐĂNG NHẬP THÀNH CÔNG: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', me.id)})")
-            print(f"📁 Session file đã lưu tại: {session_path}.session\n")
+            print(f"📁 Session file đã bảo vệ tại: {session_path}.session (An toàn tuyệt đối trước Git!)\n")
 except Exception as e:
     print(f"\n❌ Lỗi đăng nhập: {e}")
     if "ApiIdInvalidError" in str(type(e)) or "ApiIdInvalid" in str(e):

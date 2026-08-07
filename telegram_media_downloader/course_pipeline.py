@@ -750,7 +750,11 @@ async def main():
         api_id_val = "21724"
         api_hash_val = "3e0fe5dadb9b1612e3e5b6d912b72449"
 
-    session_path = str(BASE_DIR / "pyrogram.session")
+    persistent_sess = Path.home() / ".telegram_sessions" / "pyrogram"
+    if (Path.home() / ".telegram_sessions" / "pyrogram.session").exists():
+        session_path = str(persistent_sess)
+    else:
+        session_path = str(BASE_DIR / "pyrogram.session")
     client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
 
     if phone_val:
