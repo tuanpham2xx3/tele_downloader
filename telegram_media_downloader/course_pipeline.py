@@ -295,7 +295,7 @@ def extract_and_repackage(course_dir: Path, upload_dir: Path) -> bool:
             continue
 
         log(f"Đang giải nén file: {file_path.name}...", "INFO")
-        cmd = ["7z", "x", "-y", f"-o{extracted_dir}", str(file_path)]
+        cmd = ["7z", "x", "-y", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
         try:
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if res.returncode != 0:
