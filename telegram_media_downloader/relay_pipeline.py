@@ -372,6 +372,10 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02")
 
     # Ước lượng dung lượng chuẩn thực tế (chỉ tính 1.05x dung lượng file)
+    total_mb = sum(
+        getattr(m.file, "size", 0) / 1024 / 1024
+        for m in msgs if getattr(m, "file", None)
+    )
     estimated_gb = max((total_mb / 1024) * 1.05, 0.5)
 
     ram_dir, shm_free_gb = get_best_ram_dir()
