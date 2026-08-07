@@ -405,11 +405,24 @@ async def main():
                 await process_course_batch(client, course_title, msgs, rclone_parent, log_path)
             except asyncio.TimeoutError:
                 pass  # Tiếp tục chờ tin nhắn mới
+            except Exception as e:
+                log(f"⚠️ Lỗi trong queue processor: {e}", "WARN", log_path)
 
-    await asyncio.gather(
-        client.run_until_disconnected(),
-        queue_processor()
-    )
+    while True:
+        try:
+            await asyncio.gather(
+                client.run_until_disconnected(),
+                queue_processor()
+            )
+            break
+        except Exception as e:
+            log(f"⚠️ Cảnh báo gián đoạn kết nối Telegram ({e}), tự động kết nối lại sau 3 giây...", "WARN", log_path)
+            await asyncio.sleep(3)
+            try:
+                if not client.is_connected():
+                    await client.connect()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
