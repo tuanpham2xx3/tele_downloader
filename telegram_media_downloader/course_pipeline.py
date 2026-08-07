@@ -1022,6 +1022,26 @@ async def main():
                                     log(f"  - 🗑️ Đã xóa file nén {filename} để thu hồi RAM Disk", "INFO")
                                 except Exception:
                                     pass
+                    except OSError as oe:
+                        if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
+                            log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {filename}, đợi 15s giải phóng RAM...", "WARN")
+                            await asyncio.sleep(15)
+                            # Thử tải lại sau khi RAM được giải phóng
+                            try:
+                                await asyncio.wait_for(client.download_media(msg, file=str(save_path)), timeout=dl_timeout)
+                                log(f"  - ✔ [TẢI LẠI THÀNH CÔNG] {filename}, ⚡ Giải nén...", "SUCCESS")
+                                if not re.search(r'\.part\d+\.rar$', filename, re.I):
+                                    if extract_single_archive(save_path, extracted_dir):
+                                        try:
+                                            save_path.unlink()
+                                        except Exception:
+                                            pass
+                            except Exception as re_e:
+                                log(f"  - ✘ Thất bại khi tải lại {filename}: {re_e}", "ERROR")
+                                download_success = False
+                        else:
+                            log(f"Thất bại khi xử lý {filename}: {oe}", "ERROR")
+                            download_success = False
                     except asyncio.TimeoutError:
                         elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
                         log(f"  - ✘ STALL/TIMEOUT sau {elapsed}s khi tải {filename}, bỏ qua.", "ERROR")

@@ -449,6 +449,26 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                 elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
                 log(f"  - ✘ [RELAY] STALL/TIMEOUT sau {elapsed}s khi tải {fname}, bỏ qua.", "ERROR", log_path)
                 download_success = False
+            except OSError as oe:
+                wd_task.cancel()
+                if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
+                    log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {fname}, đợi 15s giải phóng RAM...", "WARN", log_path)
+                    await asyncio.sleep(15)
+                    try:
+                        await asyncio.wait_for(client.download_media(msg, file=str(save_path)), timeout=dl_timeout)
+                        log(f"  - ✔ [RELAY TẢI LẠI THÀNH CÔNG] {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
+                        if not re.search(r'\.part\d+\.rar$', fname, re.I):
+                            if extract_single_archive(save_path, extracted_dir):
+                                try:
+                                    save_path.unlink()
+                                except Exception:
+                                    pass
+                    except Exception as re_e:
+                        log(f"  - ✘ [RELAY] Thất bại khi tải lại {fname}: {re_e}", "ERROR", log_path)
+                        download_success = False
+                else:
+                    log(f"  - ✘ [RELAY] Lỗi khi tải {fname}: {oe}", "ERROR", log_path)
+                    download_success = False
             except Exception as e:
                 wd_task.cancel()
                 log(f"  - ✘ [RELAY] Lỗi khi tải {fname}: {e}", "ERROR", log_path)
