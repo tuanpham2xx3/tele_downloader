@@ -186,7 +186,24 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
             log(f"✔ 7z đã giải nén thành công: {file_path.name}", "SUCCESS")
             return True
         else:
-            log(f"Cảnh báo 7z ({file_path.name}): {res.returncode}", "WARN")
+            err_msg = res.stderr.strip()[:150] or res.stdout.strip()[:150]
+            log(f"Cảnh báo 7z ({file_path.name}): exit_code={res.returncode}, msg={err_msg}", "WARN")
+            if "space" in err_msg.lower() or "write error" in err_msg.lower() or res.returncode == 2:
+                ssd_dir = BASE_DIR / "temp_extract_ssd" / extracted_dir.name
+                ssd_dir.mkdir(parents=True, exist_ok=True)
+                log(f"⚠️ [RAM Disk Full] Chuyển giải nén {file_path.name} sang NVMe SSD ({ssd_dir})...", "WARN")
+                ssd_cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=16", f"-o{ssd_dir}", str(file_path)]
+                ssd_res = subprocess.run(ssd_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
+                if ssd_res.returncode == 0:
+                    log(f"✔ 7z đã giải nén thành công sang NVMe SSD: {file_path.name}", "SUCCESS")
+                    for item in ssd_dir.rglob("*"):
+                        if item.is_file():
+                            rel = item.relative_to(ssd_dir)
+                            dest = extracted_dir / rel
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(item), str(dest))
+                    shutil.rmtree(str(ssd_dir), ignore_errors=True)
+                    return True
     except Exception as e:
         log(f"Lỗi 7z ({file_path.name}): {e}", "WARN")
 
@@ -380,12 +397,13 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
     ram_dir, shm_free_gb = get_best_ram_dir()
     sess_label = log_path.stem if log_path else "relay"
-    if ram_dir and shm_free_gb >= 1.5:
+    needed = max(estimated_gb * 1.2, 3.5)
+    if ram_dir and shm_free_gb >= needed:
         course_dir = ram_dir / f"pipeline_{sess_label}_temp" / sanitize_name(course_title)
-        log(f"[RAM Disk ⚡ 4 LUỒNG] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS", log_path)
+        log(f"[RAM Disk ⚡ 4 LUỒNG] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={needed:.1f}GB)", "SUCCESS", log_path)
     else:
         course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
-        log(f"[Disk] RAM Disk chỉ còn {shm_free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN", log_path)
+        log(f"[Disk 💾 NVMe] RAM Disk chỉ còn {shm_free_gb:.1f}GB (cần {needed:.1f}GB), dùng NVMe SSD cho [{course_title}]", "WARN", log_path)
 
 
     archives_dir = course_dir / "archives"

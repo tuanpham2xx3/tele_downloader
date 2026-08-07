@@ -68,15 +68,16 @@ def get_best_ram_dir() -> Tuple[Optional[Path], float]:
 
 
 def get_temp_dir_for_course(course_title: str, estimated_gb: float = 3.0) -> Path:
-    """Chọn TEMP_DIR thông minh: dùng RAM nếu đủ chỗ, fallback về đĩa."""
+    """Chọn TEMP_DIR thông minh: dùng RAM nếu đủ chỗ (tối thiểu 3.5GB free & đủ estimated), fallback về đĩa NVMe SSD 50GB."""
     ram_dir, free_gb = get_best_ram_dir()
-    if ram_dir and free_gb >= 1.5:
+    needed = max(estimated_gb * 1.2, 3.5)
+    if ram_dir and free_gb >= needed:
         ram_path = ram_dir / f"pipeline_acc1_temp" / sanitize_name(course_title)
-        log(f"[RAM Disk ⚡ 4 LUỒNG] Sử dụng {ram_dir} cho [{course_title}] (Free={free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS")
+        log(f"[RAM Disk ⚡ 4 LUỒNG] Sử dụng {ram_dir} cho [{course_title}] (Free={free_gb:.1f}GB / cần={needed:.1f}GB)", "SUCCESS")
         return ram_path
     else:
         disk_path = BASE_DIR / "temp_processing" / sanitize_name(course_title)
-        log(f"[Disk] RAM Disk chỉ còn {free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN")
+        log(f"[Disk 💾 NVMe] RAM Disk chỉ còn {free_gb:.1f}GB (cần {needed:.1f}GB), chuyển sang NVMe SSD 50GB cho [{course_title}]", "WARN")
         return disk_path
 
 
@@ -489,7 +490,26 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
             log(f"✔ 7z đã giải nén thành công: {file_path.name}", "SUCCESS")
             return True
         else:
-            log(f"Cảnh báo 7z ({file_path.name}): exit_code={res.returncode}, msg={res.stderr.strip()[:150] or res.stdout.strip()[:150]}", "WARN")
+            err_msg = res.stderr.strip()[:150] or res.stdout.strip()[:150]
+            log(f"Cảnh báo 7z ({file_path.name}): exit_code={res.returncode}, msg={err_msg}", "WARN")
+            if "space" in err_msg.lower() or "write error" in err_msg.lower() or res.returncode == 2:
+                # Fallback giải nén sang NVMe SSD đĩa cứng
+                ssd_dir = BASE_DIR / "temp_extract_ssd" / extracted_dir.name
+                ssd_dir.mkdir(parents=True, exist_ok=True)
+                log(f"⚠️ [RAM Disk Full] Chuyển giải nén {file_path.name} sang NVMe SSD ({ssd_dir})...", "WARN")
+                ssd_cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=16", f"-o{ssd_dir}", str(file_path)]
+                ssd_res = subprocess.run(ssd_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+                if ssd_res.returncode == 0:
+                    log(f"✔ 7z đã giải nén thành công sang NVMe SSD: {file_path.name}", "SUCCESS")
+                    # Copy / Move extracted files sang extracted_dir
+                    for item in ssd_dir.rglob("*"):
+                        if item.is_file():
+                            rel = item.relative_to(ssd_dir)
+                            dest = extracted_dir / rel
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(item), str(dest))
+                    shutil.rmtree(str(ssd_dir), ignore_errors=True)
+                    return True
     except Exception as e:
         log(f"Lỗi 7z ({file_path.name}): {e}", "WARN")
 
