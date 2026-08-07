@@ -316,19 +316,32 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         save_path = archives_dir / fname
         file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
         size_mb = file_size / 1024 / 1024 if file_size else 0.0
+        # Timeout: 2 giờ cho file nhỏ hơn 2GB, lớn hơn thì 4 giờ
+        dl_timeout = 14400 if size_mb > 2000 else 7200
         async with sem:
             log(f"  - 🚀 [RELAY] Tải: {fname} ({size_mb:.1f} MB)...", "INFO", log_path)
             try:
-                await client.download_media(msg, file=str(save_path))
+                await asyncio.wait_for(
+                    client.download_media(msg, file=str(save_path)),
+                    timeout=dl_timeout
+                )
                 log(f"  - ✔ [RELAY] Tải xong {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
                 if not re.search(r'\.part\d+\.rar$', fname, re.I):
                     extract_single_archive(save_path, extracted_dir)
+            except asyncio.TimeoutError:
+                log(f"  - ✘ [RELAY] TIMEOUT sau {dl_timeout//3600}h khi tải {fname}, bỏ qua.", "ERROR", log_path)
+                download_success = False
             except Exception as e:
                 log(f"  - ✘ [RELAY] Lỗi khi tải {fname}: {e}", "ERROR", log_path)
                 download_success = False
 
     tasks = [dl_file(m) for m in msgs]
-    await asyncio.gather(*tasks)
+    # Timeout toàn bộ khóa: tối đa 6 giờ
+    try:
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=21600)
+    except asyncio.TimeoutError:
+        log(f"[RELAY] ✘ TIMEOUT 6h toàn khóa {course_title}, dừng xử lý.", "ERROR", log_path)
+        download_success = False
 
     if not download_success:
         log(f"[RELAY] ✘ Lỗi tải file cho khóa {course_title}. Bỏ qua.", "ERROR", log_path)
@@ -370,69 +383,107 @@ async def main():
     api_hash_val = os.environ.get("TELERECON_API_HASH", "b18441a12607e109d9496d9a244ead1c")
     session_path = str(BASE_DIR / args.session)
 
-    client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
-    await client.start()
-    me = await client.get_me()
-    log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
+    # Các lỗi MTProto nghiêm trọng cần reconnect hoàn toàn
+    FATAL_MTPROTO_KEYWORDS = [
+        "too many messages had to be ignored",
+        "server closed the connection",
+        "connection reset",
+        "broken pipe",
+        "bad message",
+        "security error",
+        "0 bytes read",
+    ]
 
-    # Lấy relay group entity
-    relay_group = await client.get_entity(args.group)
+    def is_fatal_mtproto_error(e: Exception) -> bool:
+        msg = str(e).lower()
+        return any(kw in msg for kw in FATAL_MTPROTO_KEYWORDS)
 
-    # Buffer để gom tin nhắn theo từng khóa
-    # Acc 1 sẽ gửi:  "##COURSE_START## <tên khóa>" → các file → "##COURSE_END##"
-    pending_batch: dict = {}  # group_id -> {title, msgs}
     processing_queue: asyncio.Queue = asyncio.Queue()
 
-    @client.on(events.NewMessage(chats=relay_group))
-    async def handler(event):
-        msg = event.message
-        text = getattr(msg, "text", "") or ""
-
-        if text.startswith(SENTINEL_PREFIX):
-            course_title = text[len(SENTINEL_PREFIX):].strip()
-            pending_batch["current"] = {"title": course_title, "msgs": []}
-            log(f"[RELAY] 📥 Nhận khóa mới: {course_title}", "INFO", log_path)
-            return
-
-        if text.strip() == SENTINEL_END:
-            batch = pending_batch.pop("current", None)
-            if batch and batch["msgs"]:
-                await processing_queue.put((batch["title"], batch["msgs"]))
-            return
-
-        # Tin nhắn media - thêm vào batch hiện tại
-        if "current" in pending_batch and msg.media:
-            pending_batch["current"]["msgs"].append(msg)
-
-    log(f"[RELAY] ⏳ Đang lắng nghe relay group {args.group}...", "INFO", log_path)
-
-    # Chạy song song: lắng nghe event + xử lý queue download
     async def queue_processor():
         while True:
             try:
-                course_title, msgs = await asyncio.wait_for(processing_queue.get(), timeout=30)
-                await process_course_batch(client, course_title, msgs, rclone_parent, log_path)
+                course_title, msgs = await asyncio.wait_for(processing_queue.get(), timeout=60)
+                log(f"[QUEUE] 🔄 Bắt đầu xử lý từ queue: {course_title}", "INFO", log_path)
+                # client có thể bị thay thế, dùng biến nonlocal
+                # Timeout toàn bộ quá trình xử lý 1 khóa: 8 giờ
+                try:
+                    await asyncio.wait_for(
+                        process_course_batch(client_holder[0], course_title, msgs, rclone_parent, log_path),
+                        timeout=28800
+                    )
+                except asyncio.TimeoutError:
+                    log(f"[QUEUE] ✘ TIMEOUT 8h khi xử lý [{course_title}], chuyển sang khóa tiếp theo.", "ERROR", log_path)
             except asyncio.TimeoutError:
-                pass  # Tiếp tục chờ tin nhắn mới
+                pass  # queue rỗng, tiếp tục chờ
             except Exception as e:
                 log(f"⚠️ Lỗi trong queue processor: {e}", "WARN", log_path)
 
+    client_holder = [None]  # holder để queue_processor có thể dùng client mới nhất
+    retry_delay = 5  # giây, exponential backoff
+    MAX_DELAY = 120
+
+    asyncio.ensure_future(queue_processor())
+
     while True:
         try:
-            await asyncio.gather(
-                client.run_until_disconnected(),
-                queue_processor()
-            )
+            client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
+            client_holder[0] = client
+            await client.start()
+            me = await client.get_me()
+            log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
+            retry_delay = 5  # reset sau khi kết nối thành công
+
+            # Lấy relay group entity
+            relay_group = await client.get_entity(args.group)
+
+            # Buffer để gom tin nhắn theo từng khóa
+            pending_batch: dict = {}
+
+            @client.on(events.NewMessage(chats=relay_group))
+            async def handler(event):
+                msg = event.message
+                text = getattr(msg, "text", "") or ""
+
+                if text.startswith(SENTINEL_PREFIX):
+                    course_title = text[len(SENTINEL_PREFIX):].strip()
+                    pending_batch["current"] = {"title": course_title, "msgs": []}
+                    log(f"[RELAY] 📥 Nhận khóa mới: {course_title}", "INFO", log_path)
+                    return
+
+                if text.strip() == SENTINEL_END:
+                    batch = pending_batch.pop("current", None)
+                    if batch and batch["msgs"]:
+                        await processing_queue.put((batch["title"], batch["msgs"]))
+                    return
+
+                if "current" in pending_batch and msg.media:
+                    pending_batch["current"]["msgs"].append(msg)
+
+            log(f"[RELAY] ⏳ Đang lắng nghe relay group {args.group}...", "INFO", log_path)
+            await client.run_until_disconnected()
+
+        except KeyboardInterrupt:
+            log("🛑 Dừng theo yêu cầu người dùng.", "INFO", log_path)
             break
         except Exception as e:
-            log(f"⚠️ Cảnh báo gián đoạn kết nối Telegram ({e}), tự động kết nối lại sau 3 giây...", "WARN", log_path)
-            await asyncio.sleep(3)
+            if is_fatal_mtproto_error(e):
+                log(f"🔴 Lỗi MTProto nghiêm trọng: {e}", "ERROR", log_path)
+                log(f"♻️ Tạo lại TelegramClient hoàn toàn sau {retry_delay}s...", "WARN", log_path)
+            else:
+                log(f"⚠️ Gián đoạn kết nối ({e}), kết nối lại sau {retry_delay}s...", "WARN", log_path)
+
+            # Đóng client cũ hoàn toàn
             try:
-                if not client.is_connected():
-                    await client.connect()
+                if client_holder[0] and client_holder[0].is_connected():
+                    await client_holder[0].disconnect()
             except Exception:
                 pass
+
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, MAX_DELAY)  # exponential backoff, tối đa 120s
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+

@@ -793,13 +793,18 @@ async def main():
                 # CHỜ ACC 2 LÀM XONG KHÓA TRƯỚC RỒI MỚI FORWARD KHÓA TIẾP THEO
                 if acc2_current_course:
                     log(f"⏳ [Dispatcher] Acc 2 đang bận xử lý [{acc2_current_course}], chờ Acc 2 hoàn tất...", "INFO")
-                    while True:
+                    waited = 0
+                    MAX_WAIT = 3 * 3600  # Tối đa chờ 3 giờ
+                    while waited < MAX_WAIT:
                         latest_csv = load_csv_status()
                         st = latest_csv.get(acc2_current_course, "FORWARDED_ACC2")
                         if st != "FORWARDED_ACC2":
                             log(f"✔ [Dispatcher] Acc 2 đã xong [{acc2_current_course}] (status={st}), gửi khóa tiếp theo!", "SUCCESS")
                             break
                         await asyncio.sleep(5)
+                        waited += 5
+                    else:
+                        log(f"⚠️ [Dispatcher] Acc 2 chờ quá 3h cho [{acc2_current_course}], bỏ qua và gửi khóa tiếp theo!", "WARN")
 
                 log(f"🔵 [Dispatcher] Forward 1 khóa duy nhất [{clean_title}] ({len(files)} file) -> Group Acc 2 ({relay_acc2})...", "INFO")
                 fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
@@ -813,13 +818,18 @@ async def main():
                 # CHỜ ACC 3 LÀM XONG KHÓA TRƯỚC RỒI MỚI FORWARD KHÓA TIẾP THEO
                 if acc3_current_course:
                     log(f"⏳ [Dispatcher] Acc 3 đang bận xử lý [{acc3_current_course}], chờ Acc 3 hoàn tất...", "INFO")
-                    while True:
+                    waited = 0
+                    MAX_WAIT = 3 * 3600  # Tối đa chờ 3 giờ
+                    while waited < MAX_WAIT:
                         latest_csv = load_csv_status()
                         st = latest_csv.get(acc3_current_course, "FORWARDED_ACC3")
                         if st != "FORWARDED_ACC3":
                             log(f"✔ [Dispatcher] Acc 3 đã xong [{acc3_current_course}] (status={st}), gửi khóa tiếp theo!", "SUCCESS")
                             break
                         await asyncio.sleep(5)
+                        waited += 5
+                    else:
+                        log(f"⚠️ [Dispatcher] Acc 3 chờ quá 3h cho [{acc3_current_course}], bỏ qua và gửi khóa tiếp theo!", "WARN")
 
                 log(f"🟠 [Dispatcher] Forward 1 khóa duy nhất [{clean_title}] ({len(files)} file) -> Group Acc 3 ({relay_acc3})...", "INFO")
                 fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
