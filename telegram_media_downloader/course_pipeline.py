@@ -636,6 +636,9 @@ async def main():
     # ------------------------------------------
     # BƯỚC 3, 4, 5, 6: VÒNG LẶP XỬ LÝ TỪNG KHÓA
     # ------------------------------------------
+    num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
+    pending_slot_counter = 0  # Đếm riêng theo số khóa PENDING thực tế (không tính COMPLETED)
+
     for idx, (course_title, files) in enumerate(courses_map, 1):
         log(f"\n==========================================", "INFO")
         log(f"▶ XỬ LÝ KHÓA [{idx}/{len(courses_map)}]: {course_title}", "SUCCESS")
@@ -657,9 +660,10 @@ async def main():
 
         # -------------------------------------------------------
         # ROUND-ROBIN: XÁC ĐỊNH AI XỬ LÝ KHÓA NÀY
+        # Đếm theo số khóa PENDING thực tế để không acc nào bị rảnh
         # -------------------------------------------------------
-        num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
-        slot = (idx - 1) % num_workers
+        slot = pending_slot_counter % num_workers
+        pending_slot_counter += 1  # Tăng ngay để acc tiếp theo nhận khóa tiếp theo
 
         if slot == 0:
             # Acc 1 tải trực tiếp
