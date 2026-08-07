@@ -26,10 +26,11 @@ if ! command -v 7z &> /dev/null; then
     sudo apt-get update -qq && sudo apt-get install -y p7zip-full p7zip-rar unrar || true
 fi
 
-# Kill các process cũ
-pkill -f course_pipeline.py || true
-pkill -f relay_pipeline.py  || true
-sleep 1
+# Kill triệt để các process cũ giải phóng port 5000 và file session
+pkill -9 -f course_pipeline.py || true
+pkill -9 -f relay_pipeline.py  || true
+pkill -9 -f cloudflared        || true
+sleep 2
 
 echo ""
 echo "=================================================="
@@ -39,17 +40,6 @@ echo "  Acc 1: Quét bot + tải trực tiếp (port 5000)"
 echo "  Acc 2: Relay group $RELAY_GROUP_ACC2 (port 5001)"
 echo "  Acc 3: Relay group $RELAY_GROUP_ACC3 (port 5002)"
 echo "=================================================="
-
-# Khởi chạy Cloudflare Tunnel nếu có
-if [ -f "./cloudflared" ]; then
-    pkill -f cloudflared || true
-    sleep 1
-    echo "🌐 Khởi chạy Cloudflare Tunnel (Acc 1 / port 5000)..."
-    nohup ./cloudflared tunnel --url http://localhost:5000 > cloudflared.log 2>&1 &
-    sleep 3
-    URL=$(grep -o "https://[a-zA-Z0-9-]*\.trycloudflare\.com" cloudflared.log | tail -n 1)
-    [ -n "$URL" ] && echo "🌐 Web Log Acc 1: $URL"
-fi
 
 # ── Acc 1 Master Pipeline ─────────────────────────────
 echo ""
@@ -67,6 +57,17 @@ nohup $CMD_PREFIX$PYTHON_BIN $PIPELINE_SCRIPT \
     > pipeline_acc1.log 2>&1 &
 
 echo "✔ Acc 1 đã khởi động! Log: pipeline_acc1.log"
+
+sleep 3
+
+# Khởi chạy Cloudflare Tunnel sau khi Acc 1 đã bind port 5000
+if [ -f "./cloudflared" ]; then
+    echo "🌐 Khởi chạy Cloudflare Tunnel (Acc 1 / port 5000)..."
+    nohup ./cloudflared tunnel --url http://localhost:5000 > cloudflared.log 2>&1 &
+    sleep 3
+    URL=$(grep -o "https://[a-zA-Z0-9-]*\.trycloudflare\.com" cloudflared.log | tail -n 1)
+    [ -n "$URL" ] && echo "🌐 Web Log Dashboard: $URL"
+fi
 
 sleep 2
 
