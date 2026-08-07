@@ -286,8 +286,8 @@ def extract_course_title(text: str) -> Optional[str]:
             if "|" in line:
                 parts = [p.strip() for p in line.split("|")]
                 chosen = next((p for p in parts if re.search(r'[a-zA-Z]{4,}', p)), parts[-1])
-                return str(chosen)
-            return str(line)
+                return normalize_title(str(chosen))
+            return normalize_title(str(line))
     return None
 
 
@@ -315,15 +315,14 @@ def load_csv_status() -> Dict[str, str]:
     with open(CSV_PATH, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         for row in reader:
-            if not row:
+            if not row or len(row) < 2:
                 continue
-            title = row[0].strip()
-            status = row[1].strip() if len(row) > 1 else "PENDING"
-            status_map[title] = status
+            status_map[normalize_title(row[0])] = row[1].strip()
     return status_map
 
 
 def update_csv_status(title: str, status: str):
+    clean_t = normalize_title(title)
     rows = []
     found = False
     if CSV_PATH.exists():
@@ -332,14 +331,14 @@ def update_csv_status(title: str, status: str):
             for row in reader:
                 if not row:
                     continue
-                if row[0].strip() == title.strip():
+                if normalize_title(row[0]) == clean_t:
                     rows.append([row[0].strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
                     found = True
                 else:
                     rows.append(row)
 
     if not found:
-        rows.append([title.strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+        rows.append([clean_t, status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
 
     with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
@@ -745,9 +744,10 @@ async def main():
         pending_slot_counter = 0
 
         for idx, (course_title, files) in enumerate(courses_map, 1):
-            current_status = csv_status.get(course_title, "PENDING")
+            clean_title = normalize_title(course_title)
+            current_status = csv_status.get(clean_title, "PENDING")
             if current_status in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3"):
-                log(f"⏭ Khóa [{course_title}] status={current_status} trong CSV, BỎ QUA không gửi lại.", "WARN")
+                log(f"⏭ Khóa [{clean_title}] status={current_status} trong CSV, BỎ QUA không gửi lại.", "WARN")
                 continue
 
             if check_rclone_folder_exists(rclone_parent, course_title):

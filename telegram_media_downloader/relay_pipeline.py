@@ -249,7 +249,14 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
 # ==========================================
 CSV_PATH = BASE_DIR / "full_hoahoc.csv"
 
+def normalize_title(title: str) -> str:
+    if not title:
+        return ""
+    return re.sub(r'[*`_]', '', title).strip()
+
+
 def update_csv_status(title: str, status: str):
+    clean_t = normalize_title(title)
     rows = []
     found = False
     if CSV_PATH.exists():
@@ -258,14 +265,14 @@ def update_csv_status(title: str, status: str):
             for row in reader:
                 if not row:
                     continue
-                if row[0].strip() == title.strip():
+                if normalize_title(row[0]) == clean_t:
                     rows.append([row[0].strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
                     found = True
                 else:
                     rows.append(row)
 
     if not found:
-        rows.append([title.strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+        rows.append([clean_t, status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
 
     with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
