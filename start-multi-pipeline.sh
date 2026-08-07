@@ -62,11 +62,36 @@ sleep 3
 
 # Khởi chạy Cloudflare Tunnel sau khi Acc 1 đã bind port 5000
 if [ -f "./cloudflared" ]; then
-    echo "🌐 Khởi chạy Cloudflare Tunnel (Acc 1 / port 5000)..."
+    echo "🌐 Khởi chạy Cloudflare Tunnel (Dashboard port 5000)..."
     nohup ./cloudflared tunnel --url http://localhost:5000 > cloudflared.log 2>&1 &
-    sleep 3
-    URL=$(grep -o "https://[a-zA-Z0-9-]*\.trycloudflare\.com" cloudflared.log | tail -n 1)
-    [ -n "$URL" ] && echo "🌐 Web Log Dashboard: $URL"
+    CF_PID=$!
+
+    echo "⏳ Chờ Cloudflare khởi động (tối đa 20s)..."
+    URL=""
+    for i in $(seq 1 20); do
+        sleep 1
+        URL=$(grep -o "https://[a-zA-Z0-9-]*\.trycloudflare\.com" cloudflared.log 2>/dev/null | tail -n 1)
+        if [ -n "$URL" ]; then
+            break
+        fi
+    done
+
+    if [ -n "$URL" ]; then
+        echo ""
+        echo "╔══════════════════════════════════════════════════════╗"
+        echo "║  🌐 CLOUDFLARE DASHBOARD URL:                        ║"
+        echo "║  $URL"
+        echo "║                                                      ║"
+        echo "║  📋 Tab 1: 🟢 Acc 1 (Master)                         ║"
+        echo "║  📋 Tab 2: 🔵 Acc 2 (Relay)                          ║"
+        echo "║  📋 Tab 3: 🟠 Acc 3 (Relay)                          ║"
+        echo "║  📋 Tab 4: 🛰️ Dispatcher (port 5003)                 ║"
+        echo "╚══════════════════════════════════════════════════════╝"
+        echo ""
+    else
+        echo "⚠️  Cloudflare tunnel chưa lấy được URL sau 20s!"
+        echo "    Kiểm tra: cat cloudflared.log | grep trycloudflare"
+    fi
 fi
 
 sleep 2
