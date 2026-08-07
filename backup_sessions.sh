@@ -27,9 +27,16 @@ fi
 echo -e "${CYAN}[INFO] Đang đồng bộ git repo...${NC}"
 git pull --rebase origin main 2>/dev/null || true
 
-echo -e "${CYAN}[INFO] Đang đẩy session files lên GitHub...${NC}"
-git add telegram_media_downloader/*.session
-git commit -m "chore: backup telegram session files"
+# Sao lưu rclone.conf nếu có
+if [ -f ~/.config/rclone/rclone.conf ]; then
+    cp ~/.config/rclone/rclone.conf ./rclone.conf
+    git add rclone.conf
+    echo -e "${GREEN}[OK] Đã đính kèm rclone.conf vào bản sao lưu.${NC}"
+fi
+
+echo -e "${CYAN}[INFO] Đang đẩy session files & rclone.conf lên GitHub...${NC}"
+git add telegram_media_downloader/*.session 2>/dev/null || true
+git commit -m "chore: backup telegram sessions and rclone.conf"
 git push origin main
 
 if [ $? -eq 0 ]; then

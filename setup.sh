@@ -61,12 +61,23 @@ if ! command -v 7z &>/dev/null; then
     ok "7z/unrar OK"
 fi
 
-# ── BƯỚC 4: Cài cloudflared nếu chưa có ─────────────
+# ── BƯỚC 4: Tải cloudflared & khôi phục rclone.conf ────
 if [ ! -f "./cloudflared" ]; then
     info "Tải cloudflared..."
     curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
     chmod +x cloudflared
     ok "cloudflared OK"
+fi
+
+# Tự động khôi phục rclone.conf nếu có trong repo
+mkdir -p ~/.config/rclone
+if [ -f "./rclone.conf" ] && [ ! -f ~/.config/rclone/rclone.conf ]; then
+    cp ./rclone.conf ~/.config/rclone/rclone.conf
+    ok "Đã khôi phục rclone.conf từ repo ✔"
+elif [ -f ~/.config/rclone/rclone.conf ]; then
+    ok "rclone.conf đã sẵn sàng ✔"
+else
+    warn "Thiếu rclone.conf! Rclone chưa kết nối Google Drive."
 fi
 
 # ── BƯỚC 5: Kiểm tra session file ───────────────────
