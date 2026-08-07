@@ -129,8 +129,12 @@ SENTINEL_PREFIX = "##COURSE_START##"
 SENTINEL_END    = "##COURSE_END##"
 
 def sanitize_name(name: str) -> str:
-    name = re.sub(r'[\\/*?:"<>|]', "_", name)
-    return name.strip().strip(".")[:120]
+    if not name:
+        return "Unassigned_Course"
+    clean = re.sub(r'[*`~_]', '', name)
+    clean = re.sub(r'[\\/*?:"<>|]', '', clean)
+    clean = clean.strip().strip('.').strip('_')
+    return clean[:120] if clean else "Unassigned_Course"
 
 def get_file_name(msg: Any) -> Optional[str]:
     if not msg.media:

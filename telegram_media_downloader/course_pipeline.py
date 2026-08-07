@@ -264,11 +264,16 @@ def start_web_log_server(port: int = 5000):
 def normalize_title(title: str) -> str:
     if not title:
         return ""
-    return re.sub(r'[*`_]', '', title).strip()
+    clean = re.sub(r'[*`~_]', '', title).strip()
+    return clean
 
 
 def sanitize_name(name: str) -> str:
-    clean = re.sub(r'[\\/*?:"<>|]', "", name).strip()
+    if not name:
+        return "Unassigned_Course"
+    clean = re.sub(r'[*`~_]', '', name)
+    clean = re.sub(r'[\\/*?:"<>|]', '', clean)
+    clean = clean.strip().strip('.').strip('_')
     return clean[:120] if clean else "Unassigned_Course"
 
 
