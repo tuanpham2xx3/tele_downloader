@@ -634,139 +634,141 @@ async def main():
     log(f"✔ Đã phân cụm thành công {len(courses_map)} khóa học từ luồng tin nhắn Bot!", "SUCCESS")
 
     # ------------------------------------------
-    # BƯỚC 3, 4, 5, 6: VÒNG LẶP XỬ LÝ TỪNG KHÓA
+    # BƯỚC 3, 4, 5, 6: DISPATCHER & WORKER CHẠY SONG SONG
     # ------------------------------------------
-    num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
-    pending_slot_counter = 0  # Đếm riêng theo số khóa PENDING thực tế (không tính COMPLETED)
+    acc1_local_queue: asyncio.Queue = asyncio.Queue()
 
-    for idx, (course_title, files) in enumerate(courses_map, 1):
-        log(f"\n==========================================", "INFO")
-        log(f"▶ XỬ LÝ KHÓA [{idx}/{len(courses_map)}]: {course_title}", "SUCCESS")
-        log(f"Tổng số file đính kèm: {len(files)}", "INFO")
-        log("==========================================", "INFO")
+    async def acc1_worker():
+        while True:
+            item = await acc1_local_queue.get()
+            if item is None:
+                acc1_local_queue.task_done()
+                break
 
-        # 1. Kiểm tra xem đã hoàn tất trong full_hoahoc.csv chưa
-        current_status = csv_status.get(course_title, "PENDING")
-        if current_status == "COMPLETED":
-            log(f"⏭ Đã đánh dấu COMPLETED trong full_hoahoc.csv, BỎ QUA.", "WARN")
-            continue
+            idx, course_title, files = item
+            log(f"\n==========================================", "INFO")
+            log(f"▶ [Acc 1 Worker] XỬ LÝ KHÓA [{idx}/{len(courses_map)}]: {course_title}", "SUCCESS")
+            log(f"Tổng số file đính kèm: {len(files)}", "INFO")
+            log("==========================================", "INFO")
 
-        # 2. Kiểm tra trước xem thư mục khóa học đã tồn tại trên Rclone Google Drive chưa
-        if check_rclone_folder_exists(rclone_parent, course_title):
-            log(f"⏭ Đã TỒN TẠI trên Google Drive, Bỏ QUA & cập nhật CSV status thành COMPLETED.", "SUCCESS")
+            course_dir = TEMP_DIR / sanitize_name(course_title)
+            archives_dir = course_dir / "archives"
+            upload_dir = course_dir / "upload"
+
+            archives_dir.mkdir(parents=True, exist_ok=True)
+            upload_dir.mkdir(parents=True, exist_ok=True)
+
+            log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (3 file song song cùng lúc)...", "INFO")
+            download_success = True
+            extracted_dir = course_dir / "extracted"
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+
+            file_semaphore = asyncio.Semaphore(3)
+
+            async def process_single_file(filename: str, msg: Any):
+                nonlocal download_success
+                save_path = archives_dir / filename
+                file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
+                size_mb = file_size / 1024 / 1024 if file_size else 0.0
+
+                async with file_semaphore:
+                    log(f"  - 🚀 Bắt đầu tải [3 file song song]: {filename} ({size_mb:.1f} MB)...", "INFO")
+                    try:
+                        await client.download_media(msg, file=str(save_path))
+                        log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
+                        if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
+                            extract_single_archive(save_path, extracted_dir)
+                    except Exception as e:
+                        log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
+                        download_success = False
+
+            tasks = [process_single_file(fn, m) for fn, m in files]
+            await asyncio.gather(*tasks)
+
+            if not download_success:
+                log(f"Khóa học {course_title} bị lỗi khi tải/giải nén file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
+                update_csv_status(course_title, "FAILED_DOWNLOAD")
+                shutil.rmtree(str(course_dir), ignore_errors=True)
+                acc1_local_queue.task_done()
+                continue
+
+            for file_path in archives_dir.glob("*.rar"):
+                if re.search(r'\.part0?1\.rar$', file_path.name, re.I):
+                    extract_single_archive(file_path, extracted_dir)
+
+            log("Đóng gói & Phân loại file (.mp4 và Class_Materials.zip)...", "INFO")
+            extracted_ok = repackage_extracted(course_dir, upload_dir)
+            if not extracted_ok:
+                log(f"Lỗi ở bước đóng gói cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
+                update_csv_status(course_title, "FAILED_EXTRACT")
+                shutil.rmtree(str(course_dir), ignore_errors=True)
+                acc1_local_queue.task_done()
+                continue
+
+            log("BƯỚC 5: Upload lên Google Drive qua Rclone...", "INFO")
+            uploaded_ok = rclone_upload(upload_dir, rclone_parent, course_title)
+            if not uploaded_ok:
+                log(f"Thất bại khi Upload Rclone cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
+                update_csv_status(course_title, "FAILED_RCLONE")
+                shutil.rmtree(str(course_dir), ignore_errors=True)
+                acc1_local_queue.task_done()
+                continue
+
+            log("BƯỚC 6: Kiểm tra, Xóa tài nguyên tạm trên Ubuntu & Lưu CSV status...", "SUCCESS")
+            try:
+                shutil.rmtree(str(course_dir))
+                log(f"✔ Đã giải phóng dung lượng đĩa Ubuntu: Xóa {course_dir.name}", "INFO")
+            except Exception as e:
+                log(f"Cảnh báo khi xóa thư mục tạm: {e}", "WARN")
+
             update_csv_status(course_title, "COMPLETED")
             csv_status[course_title] = "COMPLETED"
-            continue
+            log(f"🎉 HOÀN THÀNH TOÀN BỘ WORKFLOW CHO KHÓA: {course_title}\n", "SUCCESS")
+            acc1_local_queue.task_done()
 
-        # -------------------------------------------------------
-        # ROUND-ROBIN: XÁC ĐỊNH AI XỬ LÝ KHÓA NÀY
-        # Đếm theo số khóa PENDING thực tế để không acc nào bị rảnh
-        # -------------------------------------------------------
-        slot = pending_slot_counter % num_workers
-        pending_slot_counter += 1  # Tăng ngay để acc tiếp theo nhận khóa tiếp theo
+    async def dispatcher():
+        num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
+        pending_slot_counter = 0
 
-        if slot == 0:
-            # Acc 1 tải trực tiếp
-            log(f"🟢 [Acc 1] Tải trực tiếp khóa này.", "INFO")
-        elif slot == 1 and relay_acc2:
-            # Forward sang Acc 2
-            log(f"🔵 [Acc 2 Relay] Forward {len(files)} file → Group {relay_acc2}...", "INFO")
-            fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
-            if fwd_ok:
-                update_csv_status(course_title, "FORWARDED_ACC2")
-                csv_status[course_title] = "FORWARDED_ACC2"
-            else:
-                update_csv_status(course_title, "FAILED_FORWARD")
-            continue  # Acc 2 sẽ tự xử lý, Acc 1 chuyển sang khóa tiếp theo
-        elif slot == 2 and relay_acc3:
-            # Forward sang Acc 3
-            log(f"🟠 [Acc 3 Relay] Forward {len(files)} file → Group {relay_acc3}...", "INFO")
-            fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
-            if fwd_ok:
-                update_csv_status(course_title, "FORWARDED_ACC3")
-                csv_status[course_title] = "FORWARDED_ACC3"
-            else:
-                update_csv_status(course_title, "FAILED_FORWARD")
-            continue  # Acc 3 sẽ tự xử lý, Acc 1 chuyển sang khóa tiếp theo
+        for idx, (course_title, files) in enumerate(courses_map, 1):
+            current_status = csv_status.get(course_title, "PENDING")
+            if current_status == "COMPLETED":
+                log(f"⏭ Khóa [{course_title}] COMPLETED trong CSV, BỎ QUA.", "WARN")
+                continue
 
-        # Thư mục làm việc tạm thời cho khóa học này
-        course_dir = TEMP_DIR / sanitize_name(course_title)
-        archives_dir = course_dir / "archives"
-        upload_dir = course_dir / "upload"
+            if check_rclone_folder_exists(rclone_parent, course_title):
+                log(f"⏭ Khóa [{course_title}] TỒN TẠI trên Google Drive, BỎ QUA.", "SUCCESS")
+                update_csv_status(course_title, "COMPLETED")
+                csv_status[course_title] = "COMPLETED"
+                continue
 
-        archives_dir.mkdir(parents=True, exist_ok=True)
-        upload_dir.mkdir(parents=True, exist_ok=True)
+            slot = pending_slot_counter % num_workers
+            pending_slot_counter += 1
 
+            if slot == 0:
+                log(f"🟢 [Dispatcher] Phân công khóa [{course_title}] -> Acc 1 Queue", "INFO")
+                await acc1_local_queue.put((idx, course_title, files))
+            elif slot == 1 and relay_acc2:
+                log(f"🔵 [Dispatcher] Forward {len(files)} file [{course_title}] -> Group Acc 2 ({relay_acc2})...", "INFO")
+                fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
+                if fwd_ok:
+                    update_csv_status(course_title, "FORWARDED_ACC2")
+                    csv_status[course_title] = "FORWARDED_ACC2"
+                else:
+                    update_csv_status(course_title, "FAILED_FORWARD")
+            elif slot == 2 and relay_acc3:
+                log(f"🟠 [Dispatcher] Forward {len(files)} file [{course_title}] -> Group Acc 3 ({relay_acc3})...", "INFO")
+                fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
+                if fwd_ok:
+                    update_csv_status(course_title, "FORWARDED_ACC3")
+                    csv_status[course_title] = "FORWARDED_ACC3"
+                else:
+                    update_csv_status(course_title, "FAILED_FORWARD")
 
-        # BƯỚC 3 & 4: TẢI & GIẢI NÉN TRỰC TIẾP (3 FILE SONG SONG CÙNG LÚC)
-        log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (3 file song song cùng lúc)...", "INFO")
-        download_success = True
-        extracted_dir = course_dir / "extracted"
-        extracted_dir.mkdir(parents=True, exist_ok=True)
+        await acc1_local_queue.put(None)  # Sentinel to tell worker dispatcher is finished
 
-        file_semaphore = asyncio.Semaphore(3)
-
-        async def process_single_file(filename: str, msg: Any):
-            nonlocal download_success
-            save_path = archives_dir / filename
-            file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
-            size_mb = file_size / 1024 / 1024 if file_size else 0.0
-
-            async with file_semaphore:
-                log(f"  - 🚀 Bắt đầu tải [3 file song song]: {filename} ({size_mb:.1f} MB)...", "INFO")
-                try:
-                    await client.download_media(msg, file=str(save_path))
-                    log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
-                    if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
-                        extract_single_archive(save_path, extracted_dir)
-                except Exception as e:
-                    log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
-                    download_success = False
-
-        tasks = [process_single_file(fn, m) for fn, m in files]
-        await asyncio.gather(*tasks)
-
-        if not download_success:
-            log(f"Khóa học {course_title} bị lỗi khi tải/giải nén file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
-            update_csv_status(course_title, "FAILED_DOWNLOAD")
-            shutil.rmtree(str(course_dir), ignore_errors=True)
-            continue
-
-        # Thử giải nén lại cho các bộ file nén multi-part RAR nếu có
-        for file_path in archives_dir.glob("*.rar"):
-            if re.search(r'\.part0?1\.rar$', file_path.name, re.I):
-                extract_single_archive(file_path, extracted_dir)
-
-        # Phân loại & Đóng gói sản phẩm
-        log("Đóng gói & Phân loại file (.mp4 và Class_Materials.zip)...", "INFO")
-        extracted_ok = repackage_extracted(course_dir, upload_dir)
-        if not extracted_ok:
-            log(f"Lỗi ở bước đóng gói cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
-            update_csv_status(course_title, "FAILED_EXTRACT")
-            shutil.rmtree(str(course_dir), ignore_errors=True)
-            continue
-
-        # BƯỚC 5: UPLOAD LÊN GOOGLE DRIVE QUA RCLONE
-        log("BƯỚC 5: Upload lên Google Drive qua Rclone...", "INFO")
-        uploaded_ok = rclone_upload(upload_dir, rclone_parent, course_title)
-        if not uploaded_ok:
-            log(f"Thất bại khi Upload Rclone cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
-            update_csv_status(course_title, "FAILED_RCLONE")
-            shutil.rmtree(str(course_dir), ignore_errors=True)
-            continue
-
-        # BƯỚC 6: XÓA SẢN PHẨM TRÊN UBUNTU & CẬP NHẬT CSV STATUS
-        log("BƯỚC 6: Kiểm tra, Xóa tài nguyên tạm trên Ubuntu & Lưu CSV status...", "SUCCESS")
-        try:
-            shutil.rmtree(str(course_dir))
-            log(f"✔ Đã giải phóng dung lượng đĩa Ubuntu: Xóa {course_dir.name}", "INFO")
-        except Exception as e:
-            log(f"Cảnh báo khi xóa thư mục tạm: {e}", "WARN")
-
-        # Cập nhật CSV status thành COMPLETED
-        update_csv_status(course_title, "COMPLETED")
-        csv_status[course_title] = "COMPLETED"
-        log(f"🎉 HOÀN THÀNH TOÀN BỘ WORKFLOW CHO KHÓA: {course_title}\n", "SUCCESS")
+    log("🚀 Khởi chạy Dispatcher chia việc + Acc 1 Worker song song...", "SUCCESS")
+    await asyncio.gather(dispatcher(), acc1_worker())
 
     log("\n==========================================", "SUCCESS")
     log("🏁 QUY TRÌNH ĐÃ XỬ LÝ XONG TẤT CẢ CÁC KHÓA HỌC!", "SUCCESS")
