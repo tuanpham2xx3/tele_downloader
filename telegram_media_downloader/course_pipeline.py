@@ -971,7 +971,7 @@ async def main():
                 d.mkdir(parents=True, exist_ok=True)
 
             # Giảm concurrency khi dùng đĩa (tránh disk I/O bão hòa)
-            is_ram = _PREFER_RAM and str(course_dir).startswith("/dev/shm")
+            is_ram = bool(get_best_ram_dir()[0]) and str(course_dir).startswith(("/dev/shm", "/mnt/ramdisk"))
             max_concurrent = 4 if is_ram else 2  # RAM: 4 song song, đĩa: 2 song song
             log(f"BƯỚC 3 & 4: Tải & Giải nén trực tiếp ({max_concurrent} file song song, {'RAM disk' if is_ram else 'đĩa thường'})...", "INFO")
             download_success = True

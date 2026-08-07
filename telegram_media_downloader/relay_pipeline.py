@@ -379,8 +379,9 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     estimated_gb = max(total_mb / 1024 * 2.5, 2.0)
 
     ram_dir, shm_free_gb = get_best_ram_dir()
+    sess_label = log_path.stem if log_path else "relay"
     if ram_dir and shm_free_gb >= (estimated_gb + 0.5):
-        course_dir = ram_dir / f"pipeline_{args.session}_temp" / sanitize_name(course_title)
+        course_dir = ram_dir / f"pipeline_{sess_label}_temp" / sanitize_name(course_title)
         log(f"[RAM Disk] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS", log_path)
     else:
         course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
