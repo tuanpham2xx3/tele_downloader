@@ -76,7 +76,7 @@ if [ ! -f "./cloudflared" ]; then
     ok "cloudflared OK"
 fi
 
-# Tự động khôi phục rclone.conf nếu có trong repo
+# Tự động khôi phục rclone.conf nếu chưa có
 mkdir -p ~/.config/rclone
 if [ -f "./rclone.conf" ] && [ ! -f ~/.config/rclone/rclone.conf ]; then
     cp ./rclone.conf ~/.config/rclone/rclone.conf
@@ -84,7 +84,14 @@ if [ -f "./rclone.conf" ] && [ ! -f ~/.config/rclone/rclone.conf ]; then
 elif [ -f ~/.config/rclone/rclone.conf ]; then
     ok "rclone.conf đã sẵn sàng ✔"
 else
-    warn "Thiếu rclone.conf! Rclone chưa kết nối Google Drive."
+    # Auto-restore base64 fallback token từ máy cá nhân
+    info "Đang tự động khôi phục rclone.conf từ bản mã hóa..."
+    echo "W2dkcml2ZV0NCnR5cGUgPSBkcml2ZQ0KdG9rZW4gPSB7ImFjY2Vzc190b2tlbiI6InlhMjkuYTBBVGtvQ2M1NlZpcEFucEpwZEE3YUNlaWFLNEFpRThiYlVWT2dqNjdsdnRBMUJ4WFZxanNnWnNhRWpUSVdHXzRSVWxtdnZZUGNfUTJPSHVBcnROQkhYeURWSkdIcXNueHdodjVLNjg4SE9RMEkyU2o5a09ZemdTdnBrdGdfaG55XzBsYjcyUF9DZ3EwaWFBYnhsLXQtdTUta0JOR05WN2lFX1dLdmxsSy1fUWlhQkd4aHQ5bXBfRFBRalBRR1o1aXNEWEtwTks0LWFDZ1lLQWVrU0FSTVNGUUhHWDJNaXVqUnRTUEtPRnQ2dDJaNlFZVlpBMXcwMjA3IiwidG9rZW5fdHlwZSI6IkJlYXJlciIsInJlZnJlc2hfdG9rZW4iOiIxLy8wZTF4OV9QV3U0MVRGQ2dZSUFSQUFHQTRTTndGLUw5SXJPRGoxenRtVXU5WU16UlRBekxTZ2t2ejI0UkJEc0ZYelpQT0hqZ2lnMVZxWXpZVjhPXzhCNDZGaDF2REljQ1BKQmRrIiwiZXhwaXJ5IjoiMjAyNi0wMi0yNlQwMDo1NToxOS4yNTA3NjY5KzA3OjAwIiwiZXhwaXJlc19pbiI6MzU5OX0NCnRlYW1fZHJpdmUgPSANCg0KW2dldGxpbmtdDQp0eXBlID0gZHJpdmUNCnRva2VuID0geyJhY2Nlc3NfdG9rZW4iOiJ5YTI5LmEwQVJHbnUwWjU4YW1pVkg2VGItcjBwaVg2VzJyVXV0SWwxaWJrQ2E5M2VZSlphZkw4RERFVzQ4Nlo3ZmxwNzNjQ01uQTBEMFJtMkh1THBLRmhCOTFuenViNnlNNldLY3llWEE0VXVYYWRhRkp3X0ZaUmRBcUFZT2NIU0ZvbnJuYTRPNlZMVC0xelZGTzFHMVhKOHBNUUtpeVZxMllKRFV5X3RwR05tbUJQWDdveDdUS1dSTUtqUk5leUdPMlZVbGxiYXZUT1JZUWtUUWFDZ1lLQVNRU0FSVVNGUUhHWDJNaXkyeld5Q0paOU5wT0NVT2JoQUIzUkEwMjA5IiwidG9rZW5fdHlwZSI6IkJlYXJlciIsInJlZnJlc2hfdG9rZW4iOiIxLy8wZVc2ajhEdkVWUHJSQ2dZSUFSQUFHQTRTTndGLUw5SXJpMk1ZVy02b1RwUjl5VFJCVjFnWU1yREdqak93dVVId1FqSGJTMDYzeEZlVWJmNTlrY3BVVnEybGZlcWs5WlIxSnlFIiwiZXhwaXJ5IjoiMjAyNi0wOC0wN1QxMjozMjo0OC4wMjM5MjA4KzA3OjAwIiwiZXhwaXJlc19pbiI6MzU5OX0NCnRlYW1fZHJpdmUgPSANCnNjb3BlID0gZHJpdmUNCg0K" | base64 -d > ~/.config/rclone/rclone.conf 2>/dev/null || true
+    if [ -f ~/.config/rclone/rclone.conf ]; then
+        ok "Đã tự động khôi phục rclone.conf (gdrive & getlink) ✔"
+    else
+        warn "Thiếu rclone.conf! Hãy nạp cấu hình rclone."
+    fi
 fi
 
 # ── BƯỚC 5: Kiểm tra session file ───────────────────
