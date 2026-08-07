@@ -271,6 +271,41 @@ def update_csv_status(title: str, status: str):
         writer.writerows(rows)
 
 
+import zipfile
+
+
+def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
+    """Giải nén an toàn: Thử Python zipfile trước nếu là file .zip, sau đó thử 7z/7za/unrar"""
+    if file_path.suffix.lower() == ".zip":
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(extracted_dir)
+            return True
+        except Exception as e:
+            log(f"Cảnh báo zipfile: {e}, thử công cụ khác...", "WARN")
+
+    cmd_7z = shutil.which("7z") or shutil.which("7za")
+    if cmd_7z:
+        cmd = [cmd_7z, "x", "-y", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0:
+                return True
+        except Exception as e:
+            log(f"Cảnh báo 7z: {e}", "WARN")
+
+    cmd_unrar = shutil.which("unrar")
+    if cmd_unrar:
+        try:
+            res = subprocess.run([cmd_unrar, "x", "-o+", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
 # ==========================================
 # STEP 4: ARCHIVE EXTRACTION & RE-PACKAGING
 # ==========================================
@@ -282,27 +317,17 @@ def extract_and_repackage(course_dir: Path, upload_dir: Path) -> bool:
 
     log(f"Bắt đầu giải nén tài nguyên trong {archives_dir.name}...", "INFO")
 
-    # Tìm các file nén
     archive_files = list(archives_dir.glob("*.rar")) + list(archives_dir.glob("*.zip")) + list(archives_dir.glob("*.7z"))
     if not archive_files:
         log("Không tìm thấy file nén trong thư mục archives.", "WARN")
         return False
 
-    # Giải nén bằng 7z hoặc unrar
     for file_path in archive_files:
-        # Nếu là file part2, part3... của rar, bỏ qua 7z sẽ tự xử lý từ part1
         if re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', file_path.name, re.I):
             continue
 
         log(f"Đang giải nén file: {file_path.name}...", "INFO")
-        cmd = ["7z", "x", "-y", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
-        try:
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if res.returncode != 0:
-                # Thử fallback với unrar
-                subprocess.run(["unrar", "x", "-o+", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except Exception as e:
-            log(f"Lỗi giải nén {file_path.name}: {e}", "ERROR")
+        extract_single_archive(file_path, extracted_dir)
 
     # Phân loại file sau khi giải nén
     all_files = list(extracted_dir.rglob("*"))

@@ -12,6 +12,7 @@ if [ -f "./.venv/bin/python" ]; then
 fi
 
 echo "🚀 Khởi chạy Telegram Course Pipeline ngầm (nohup)..."
+sudo apt-get update -qq && sudo apt-get install -y p7zip-full unrar-free || true
 pkill -f course_pipeline.py || true
 
 # Khởi chạy Cloudflare Tunnel ngầm nếu có file cloudflared
