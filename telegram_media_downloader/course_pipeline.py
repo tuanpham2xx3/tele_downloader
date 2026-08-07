@@ -411,11 +411,44 @@ async def parallel_download_media(client: TelegramClient, msg: Any, save_path: P
 # ==========================================
 # MAIN PIPELINE WORKFLOW
 # ==========================================
+SENTINEL_PREFIX = "##COURSE_START##"
+SENTINEL_END    = "##COURSE_END##"
+
+async def forward_course_to_relay(client: Any, relay_group_id: int, course_title: str, files: List[Tuple[str, Any]]) -> bool:
+    """
+    Forward toàn bộ file của 1 khóa học sang relay group với sentinel báo hiệu.
+    Protocol:
+      1. Gửi '##COURSE_START## <tên khóa>'
+      2. Forward từng file message
+      3. Gửi '##COURSE_END##'
+    """
+    try:
+        relay_entity = await client.get_entity(relay_group_id)
+        # Gửi sentinel bắt đầu
+        await client.send_message(relay_entity, f"{SENTINEL_PREFIX} {course_title}")
+        # Forward từng file
+        for fname, msg in files:
+            try:
+                await client.forward_messages(relay_entity, msg)
+                await asyncio.sleep(0.5)  # Tránh spam flood
+            except Exception as e:
+                log(f"  - ⚠️ Cảnh báo forward file {fname}: {e}", "WARN")
+        # Gửi sentinel kết thúc
+        await client.send_message(relay_entity, SENTINEL_END)
+        log(f"  - ✔ Đã forward {len(files)} file của [{course_title}] sang relay group {relay_group_id}", "SUCCESS")
+        return True
+    except Exception as e:
+        log(f"  - ✘ Lỗi forward sang relay group {relay_group_id}: {e}", "ERROR")
+        return False
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Telegram Course Pipeline Automator")
     parser.add_argument("-c", "--chat", help="Telegram Bot Target", default="@coursebusters_bot")
     parser.add_argument("-r", "--rclone-dest", help="Thư mục cha trên Google Drive qua Rclone (VD: gdrive:/COURSES)", default=None)
     parser.add_argument("-p", "--port", help="Cổng Web Monitor Log từ xa", type=int, default=5000)
+    parser.add_argument("--relay-acc2", help="Relay Group ID cho Acc 2 (VD: -5040203514)", type=int, default=None)
+    parser.add_argument("--relay-acc3", help="Relay Group ID cho Acc 3 (VD: -5281140814)", type=int, default=None)
     args = parser.parse_args()
 
     # Nạp Web Log Server
@@ -427,6 +460,17 @@ async def main():
     # Cấu hình Rclone Parent Folder
     rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
     log(f"Thư mục cha Rclone Google Drive: {rclone_parent}", "INFO")
+
+    # Cấu hình relay groups từ args hoặc biến môi trường
+    relay_acc2 = args.relay_acc2 or (int(os.environ.get("RELAY_GROUP_ACC2", "0")) or None)
+    relay_acc3 = args.relay_acc3 or (int(os.environ.get("RELAY_GROUP_ACC3", "0")) or None)
+
+    if relay_acc2:
+        log(f"⚡ Chế độ Round-Robin: Acc 2 relay group = {relay_acc2}", "INFO")
+    if relay_acc3:
+        log(f"⚡ Chế độ Round-Robin: Acc 3 relay group = {relay_acc3}", "INFO")
+    if not relay_acc2 and not relay_acc3:
+        log("⚡ Chế độ ĐƠN LẾ: Chỉ Acc 1 tải trực tiếp (chưa cấu hình relay).", "INFO")
 
     # Load Status từ full_hoahoc.csv
     csv_status = load_csv_status()
@@ -514,10 +558,40 @@ async def main():
 
         # 2. Kiểm tra trước xem thư mục khóa học đã tồn tại trên Rclone Google Drive chưa
         if check_rclone_folder_exists(rclone_parent, course_title):
-            log(f"⏭ Thư mục đã TỒN TẠI trên Google Drive (Rclone), BỎ QUA & cập nhật CSV status thành COMPLETED.", "SUCCESS")
+            log(f"⏭ Đã TỒN TẠI trên Google Drive, Bỏ QUA & cập nhật CSV status thành COMPLETED.", "SUCCESS")
             update_csv_status(course_title, "COMPLETED")
             csv_status[course_title] = "COMPLETED"
             continue
+
+        # -------------------------------------------------------
+        # ROUND-ROBIN: XÁC ĐỊNH AI XỬ LÝ KHÓA NÀY
+        # -------------------------------------------------------
+        num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
+        slot = (idx - 1) % num_workers
+
+        if slot == 0:
+            # Acc 1 tải trực tiếp
+            log(f"🟢 [Acc 1] Tải trực tiếp khóa này.", "INFO")
+        elif slot == 1 and relay_acc2:
+            # Forward sang Acc 2
+            log(f"🔵 [Acc 2 Relay] Forward {len(files)} file → Group {relay_acc2}...", "INFO")
+            fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
+            if fwd_ok:
+                update_csv_status(course_title, "FORWARDED_ACC2")
+                csv_status[course_title] = "FORWARDED_ACC2"
+            else:
+                update_csv_status(course_title, "FAILED_FORWARD")
+            continue  # Acc 2 sẽ tự xử lý, Acc 1 chuyển sang khóa tiếp theo
+        elif slot == 2 and relay_acc3:
+            # Forward sang Acc 3
+            log(f"🟠 [Acc 3 Relay] Forward {len(files)} file → Group {relay_acc3}...", "INFO")
+            fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
+            if fwd_ok:
+                update_csv_status(course_title, "FORWARDED_ACC3")
+                csv_status[course_title] = "FORWARDED_ACC3"
+            else:
+                update_csv_status(course_title, "FAILED_FORWARD")
+            continue  # Acc 3 sẽ tự xử lý, Acc 1 chuyển sang khóa tiếp theo
 
         # Thư mục làm việc tạm thời cho khóa học này
         course_dir = TEMP_DIR / sanitize_name(course_title)
