@@ -275,33 +275,31 @@ import zipfile
 
 
 def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
-    """Giải nén an toàn: Thử Python zipfile trước nếu là file .zip, sau đó thử 7z/7za/unrar"""
+    """Giải nén an toàn: Thử 7z/7za trước (vì 7z xử lý được cả RAR đổi tên thành ZIP), sau đó thử zipfile & unrar"""
+    cmd_7z = shutil.which("7z") or shutil.which("7za") or "/usr/bin/7z"
+    try:
+        cmd = [cmd_7z if cmd_7z else "7z", "x", "-y", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode == 0:
+            return True
+    except Exception as e:
+        log(f"Cảnh báo 7z: {e}", "WARN")
+
     if file_path.suffix.lower() == ".zip":
         try:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(extracted_dir)
             return True
         except Exception as e:
-            log(f"Cảnh báo zipfile: {e}, thử công cụ khác...", "WARN")
+            log(f"Cảnh báo zipfile: {e}", "WARN")
 
-    cmd_7z = shutil.which("7z") or shutil.which("7za")
-    if cmd_7z:
-        cmd = [cmd_7z, "x", "-y", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
-        try:
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if res.returncode == 0:
-                return True
-        except Exception as e:
-            log(f"Cảnh báo 7z: {e}", "WARN")
-
-    cmd_unrar = shutil.which("unrar")
-    if cmd_unrar:
-        try:
-            res = subprocess.run([cmd_unrar, "x", "-o+", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if res.returncode == 0:
-                return True
-        except Exception:
-            pass
+    cmd_unrar = shutil.which("unrar") or "/usr/bin/unrar"
+    try:
+        res = subprocess.run([cmd_unrar if cmd_unrar else "unrar", "x", "-o+", str(file_path), str(extracted_dir)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode == 0:
+            return True
+    except Exception:
+        pass
 
     return False
 
