@@ -151,7 +151,7 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
         return False
     cmd_7z = shutil.which("7z") or shutil.which("7za") or "7z"
     try:
-        cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=16", f"-o{extracted_dir}", str(file_path)]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
         if res.returncode == 0:
             log(f"✔ 7z đã giải nén thành công: {file_path.name}", "SUCCESS")
@@ -238,13 +238,13 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     # 4. Rclone upload
     sanitized_folder = sanitize_name(course_title)
     target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized_folder}"
-    log(f"Uploading to Google Drive: {target_remote_path}...", "INFO")
+    log(f"Uploading to Google Drive (16GB RAM BEAST MODE: 256M CHUNK, 256M BUFFER, 6 TRANSFERS): {target_remote_path}...", "INFO")
     cmd = [
         "rclone", "copy", str(upload_dir), target_remote_path,
-        "--transfers", "4",
-        "--checkers", "8",
-        "--drive-chunk-size", "64M",
-        "--buffer-size", "64M",
+        "--transfers", "6",
+        "--checkers", "16",
+        "--drive-chunk-size", "256M",
+        "--buffer-size", "256M",
         "--use-mmap",
         "--no-traverse",
         "--drive-pacer-min-sleep", "10ms",
@@ -252,7 +252,7 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
         "--drive-upload-cutoff", "0",
         "--drive-use-trash=false",
         "--progress", "--stats-one-line",
-        "--stats", "3s",
+        "--stats", "2s",
         "--no-update-modtime"
     ]
     try:
@@ -323,7 +323,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         d.mkdir(parents=True, exist_ok=True)
 
     download_success = True
-    sem = asyncio.Semaphore(3)
+    sem = asyncio.Semaphore(5)
 
     async def dl_file(msg: Any):
         nonlocal download_success

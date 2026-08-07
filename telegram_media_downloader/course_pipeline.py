@@ -447,7 +447,7 @@ def extract_single_archive(file_path: Path, extracted_dir: Path) -> bool:
 
     cmd_7z = shutil.which("7z") or shutil.which("7za") or "7z"
     try:
-        cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=on", f"-o{extracted_dir}", str(file_path)]
+        cmd = [cmd_7z, "x", "-y", "-aoa", "-p-", "-mmt=16", f"-o{extracted_dir}", str(file_path)]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
         if res.returncode == 0:
             log(f"✔ 7z đã giải nén thành công: {file_path.name}", "SUCCESS")
@@ -548,14 +548,14 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
     sanitized_folder = sanitize_name(course_title)
     target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized_folder}"
 
-    log(f"Đang tải lên Google Drive qua Rclone (TURBO MODE 4 TRANSFERS, 64M BUFFER, NO-TRAVERSE): {target_remote_path}...", "INFO")
+    log(f"Đang tải lên Google Drive qua Rclone (16GB RAM BEAST MODE: 256M CHUNK, 256M BUFFER, 6 TRANSFERS): {target_remote_path}...", "INFO")
 
     cmd = [
         "rclone", "copy", str(upload_dir), target_remote_path,
-        "--transfers", "4",
-        "--checkers", "8",
-        "--drive-chunk-size", "64M",
-        "--buffer-size", "64M",
+        "--transfers", "6",
+        "--checkers", "16",
+        "--drive-chunk-size", "256M",
+        "--buffer-size", "256M",
         "--use-mmap",
         "--no-traverse",
         "--drive-pacer-min-sleep", "10ms",
@@ -563,7 +563,7 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
         "--drive-upload-cutoff", "0",
         "--drive-use-trash=false",
         "--progress", "--stats-one-line",
-        "--stats", "3s",
+        "--stats", "2s",
         "--no-update-modtime"
     ]
     try:
@@ -902,9 +902,9 @@ async def main():
             for d in [archives_dir, upload_dir, extracted_dir]:
                 d.mkdir(parents=True, exist_ok=True)
 
-            log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (3 file song song cùng lúc)...", "INFO")
+            log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (5 file song song cùng lúc, tận dụng 16GB RAM)...", "INFO")
             download_success = True
-            file_semaphore = asyncio.Semaphore(3)
+            file_semaphore = asyncio.Semaphore(5)
 
             async def process_single_file(filename: str, msg: Any):
                 nonlocal download_success
