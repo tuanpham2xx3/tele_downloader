@@ -28,12 +28,18 @@ CONFIG_YAML = BASE_DIR / "config.yaml"
 
 
 def resolve_session_path(session_name: str) -> Path:
-    """Trả về đường dẫn đầy đủ cho session name."""
-    name = session_name if session_name.endswith(".session") else session_name
+    """Trả về đường dẫn đầy đủ cho session name (không có đuôi .session - Telethon tự thêm)."""
+    # Loại bỏ đuôi .session nếu có (để Telethon tự thêm chính xác)
+    if session_name.endswith(".session"):
+        session_name = session_name[:-8]
     p = Path(session_name)
     if not p.is_absolute():
         p = BASE_DIR / session_name
     return p
+
+def session_file_exists(session_path: Path) -> bool:
+    """Kiểm tra file session có tồn tại không (Telethon thêm đuôi .session tự động)."""
+    return session_path.exists() or (session_path.with_suffix('.session')).exists()
 
 
 def get_credentials():
@@ -87,8 +93,8 @@ async def do_login(session_path: Path):
 
 async def check_status(session_path: Path):
     print(f"\n🔍 --- KIỂM TRA TRẠNG THÁI: {session_path.name} ---")
-    if not session_path.exists():
-        print(f"❌ Chưa có file session ({session_path.name}). Hãy đăng nhập trước.")
+    if not session_file_exists(session_path):
+        print(f"❌ Chưa có file session ({session_path.name}.session). Hãy đăng nhập trước.")
         return False
 
     api_id, api_hash = get_credentials()
