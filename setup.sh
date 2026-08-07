@@ -52,13 +52,20 @@ info "Cài Python dependencies..."
 $PYTHON_BIN -m pip install -q --upgrade telethon rich python-dotenv
 ok "Dependencies OK"
 
-# ── BƯỚC 3: Cài 7z/unrar ─────────────────────────────
+# ── BƯỚC 3: Cài 7z/unrar & Rclone ──────────────────────
 if ! command -v 7z &>/dev/null; then
     info "Cài 7z/unrar..."
     sudo rm -f /etc/apt/sources.list.d/yarn.list || true
     sudo apt-get update -qq
     sudo apt-get install -y p7zip-full p7zip-rar unrar -qq
     ok "7z/unrar OK"
+fi
+
+if ! command -v rclone &>/dev/null; then
+    info "Cài đặt Rclone..."
+    sudo apt-get update -qq
+    sudo apt-get install -y rclone -qq || curl -sL https://rclone.org/install.sh | sudo bash || true
+    ok "Rclone OK"
 fi
 
 # ── BƯỚC 4: Tải cloudflared & khôi phục rclone.conf ────

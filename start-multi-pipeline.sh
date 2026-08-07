@@ -36,11 +36,11 @@ else
     log_warn "/dev/shm không tồn tại"
 fi
 
-# Cài 7z nếu chưa có
-if ! command -v 7z &> /dev/null; then
-    log_warn "Cài đặt 7z/unrar..."
+# Cài 7z và rclone nếu chưa có
+if ! command -v 7z &> /dev/null || ! command -v rclone &> /dev/null; then
+    log_warn "Cài đặt công cụ 7z/unrar/rclone..."
     sudo rm -f /etc/apt/sources.list.d/yarn.list || true
-    sudo apt-get update -qq && sudo apt-get install -y p7zip-full p7zip-rar unrar || true
+    sudo apt-get update -qq && sudo apt-get install -y p7zip-full p7zip-rar unrar rclone -qq || true
 fi
 
 # ── BƯỚC 2: Kill tất cả process cũ ──────────────────────
