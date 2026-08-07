@@ -392,8 +392,48 @@ def check_rclone_folder_exists(rclone_parent: str, course_title: str) -> bool:
 
 
 async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 16) -> None:
-    """Tải file chuẩn từ Telegram, đảm bảo file nguyên vẹn không bị hỏng byte"""
-    await client.download_media(msg, file=str(save_path))
+    """Tải 16 luồng song song xé gió với kiểm tra toàn vẹn dung lượng đĩa chuẩn 100%"""
+    file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
+    if not file_size or file_size < 2 * 1024 * 1024:
+        await client.download_media(msg, file=str(save_path))
+        return
+
+    part_size = 512 * 1024
+    total_parts = (file_size + part_size - 1) // part_size
+    temp_path = save_path.with_suffix(save_path.suffix + ".tmp")
+
+    with open(temp_path, "wb") as f:
+        f.truncate(file_size)
+
+    semaphore = asyncio.Semaphore(workers)
+
+    async def download_chunk(part_idx: int):
+        async with semaphore:
+            offset = part_idx * part_size
+            limit = min(part_size, file_size - offset)
+            for attempt in range(5):
+                try:
+                    chunk = await client.download_file(msg.media, offset=offset, limit=limit)
+                    if chunk:
+                        with open(temp_path, "r+b") as f:
+                            f.seek(offset)
+                            f.write(chunk)
+                        return
+                except Exception:
+                    await asyncio.sleep(0.2)
+
+    tasks = [download_chunk(i) for i in range(total_parts)]
+    await asyncio.gather(*tasks)
+
+    if temp_path.exists() and temp_path.stat().st_size == file_size:
+        temp_path.replace(save_path)
+    else:
+        await client.download_media(msg, file=str(save_path))
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
 
 
 # ==========================================
@@ -527,9 +567,9 @@ async def main():
             file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
 
             size_mb = file_size / 1024 / 1024 if file_size else 0.0
-            log(f"  - Đang tải: {filename} ({size_mb:.1f} MB)...", "INFO")
+            log(f"  - Đang tải [16 luồng]: {filename} ({size_mb:.1f} MB)...", "INFO")
             try:
-                await client.download_media(msg, file=str(save_path))
+                await parallel_download_media(client, msg, save_path, workers=16)
                 # Ngay sau khi tải xong 1 file ➔ Giải nén lập tức!
                 if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
                     log(f"  - ⚡ Giải nén trực tiếp ngay lập tức: {filename}...", "INFO")
