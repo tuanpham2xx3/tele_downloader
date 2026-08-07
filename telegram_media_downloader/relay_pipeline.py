@@ -201,19 +201,31 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
             dest = upload_dir / f"{vid.stem}_{vid.stat().st_size}{vid.suffix}"
         shutil.move(str(vid), str(dest))
 
-    # 2. Nén tài liệu phụ thành Class_Materials.zip
+    # 2. Nén tài liệu phụ thành Class_Materials.zip bằng 7z siêu tốc
     if other_files:
-        log("Đóng gói tài liệu phụ thành Class_Materials.zip...", "INFO")
+        log("Đóng gói tài liệu phụ thành Class_Materials.zip (Multi-threaded FAST)...", "INFO")
+        zip_path = upload_dir / "Class_Materials.zip"
+        cmd_7z = shutil.which("7z") or shutil.which("7za") or "7z"
+        packed_ok = False
         try:
-            import zipfile
-            zip_path = upload_dir / "Class_Materials.zip"
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for f in other_files:
-                    arcname = f.relative_to(extracted_dir)
-                    zf.write(f, arcname)
-            log(f"✔ Đã tạo Class_Materials.zip ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)", "SUCCESS")
-        except Exception as e:
-            log(f"Cảnh báo: Không thể nén Class_Materials.zip: {e}", "WARN")
+            pack_cmd = [cmd_7z, "a", "-tzip", "-mmt=on", "-mx=1", str(zip_path)] + [str(f) for f in other_files]
+            pres = subprocess.run(pack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+            if pres.returncode == 0 and zip_path.exists():
+                log(f"✔ Đã tạo Class_Materials.zip ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)", "SUCCESS")
+                packed_ok = True
+        except Exception:
+            pass
+
+        if not packed_ok:
+            try:
+                import zipfile
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED) as zf:
+                    for f in other_files:
+                        arcname = f.relative_to(extracted_dir)
+                        zf.write(f, arcname)
+                log(f"✔ Đã tạo Class_Materials.zip ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)", "SUCCESS")
+            except Exception as e:
+                log(f"Cảnh báo: Không thể nén Class_Materials.zip: {e}", "WARN")
 
     # 3. Cập nhật mtime về thời gian hiện tại
     for f in upload_dir.rglob("*"):
@@ -229,11 +241,18 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     log(f"Uploading to Google Drive: {target_remote_path}...", "INFO")
     cmd = [
         "rclone", "copy", str(upload_dir), target_remote_path,
-        "--transfers", "8",
-        "--checkers", "16",
-        "--drive-chunk-size", "128M",
-        "--fast-list",
+        "--transfers", "4",
+        "--checkers", "8",
+        "--drive-chunk-size", "64M",
+        "--buffer-size", "64M",
+        "--use-mmap",
+        "--no-traverse",
+        "--drive-pacer-min-sleep", "10ms",
+        "--drive-pacer-burst", "200",
+        "--drive-upload-cutoff", "0",
+        "--drive-use-trash=false",
         "--progress", "--stats-one-line",
+        "--stats", "3s",
         "--no-update-modtime"
     ]
     try:
