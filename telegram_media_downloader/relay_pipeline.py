@@ -460,21 +460,6 @@ async def main():
             except Exception as e:
                 log(f"⚠️ Lỗi trong queue processor: {e}", "WARN", log_path)
 
-    client_holder = [None]  # holder để queue_processor có thể dùng client mới nhất
-    retry_delay = 5  # giây, exponential backoff
-    MAX_DELAY = 120
-
-    asyncio.ensure_future(queue_processor())
-
-    while True:
-        try:
-            client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
-            client_holder[0] = client
-            await client.start()
-            me = await client.get_me()
-            log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
-            retry_delay = 5  # reset sau khi kết nối thành công
-
     client_holder = [None]
     retry_delay = 5
     MAX_DELAY = 120
