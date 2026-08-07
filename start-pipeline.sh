@@ -12,6 +12,7 @@ if [ -f "./.venv/bin/python" ]; then
 fi
 
 echo "🚀 Khởi chạy Telegram Course Pipeline ngầm (nohup)..."
+pkill -f course_pipeline.py || true
 
 # Khởi chạy Cloudflare Tunnel ngầm nếu có file cloudflared
 if [ -f "./cloudflared" ]; then
