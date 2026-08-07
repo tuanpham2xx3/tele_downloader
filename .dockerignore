@@ -1,0 +1,9 @@
+Chrome_Telegram_Profile/
+.venv/
+.git/
+.github/
+__pycache__/
+*.log
+temp_processing/
+downloads/
+Telerecon/
