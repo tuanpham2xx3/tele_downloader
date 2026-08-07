@@ -177,14 +177,34 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     all_files = list(extracted_dir.rglob("*")) if extracted_dir.exists() else []
     video_files = [f for f in all_files if f.is_file() and f.suffix.lower() in ('.mp4', '.mkv', '.mov', '.avi')]
     other_files = [f for f in all_files if f.is_file() and f not in video_files]
-    log(f"Giải nén xong: {len(video_files)} video, {len(other_files)} file khác.", "SUCCESS")
+    log(f"Giải nén xong: {len(video_files)} video, {len(other_files)} file tài liệu khác.", "SUCCESS")
 
+    if not video_files and not other_files:
+        log("Cảnh báo: Không tìm thấy file nào sau khi giải nén!", "WARN")
+        return False
+
+    # 1. Di chuyển video ra thư mục upload
     for vid in video_files:
         dest = upload_dir / vid.name
         if dest.exists():
             dest = upload_dir / f"{vid.stem}_{vid.stat().st_size}{vid.suffix}"
         shutil.move(str(vid), str(dest))
 
+    # 2. Nén tài liệu phụ thành Class_Materials.zip
+    if other_files:
+        log("Đóng gói tài liệu phụ thành Class_Materials.zip...", "INFO")
+        try:
+            import zipfile
+            zip_path = upload_dir / "Class_Materials.zip"
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for f in other_files:
+                    arcname = f.relative_to(extracted_dir)
+                    zf.write(f, arcname)
+            log(f"✔ Đã tạo Class_Materials.zip ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)", "SUCCESS")
+        except Exception as e:
+            log(f"Cảnh báo: Không thể nén Class_Materials.zip: {e}", "WARN")
+
+    # 3. Cập nhật mtime về thời gian hiện tại
     for f in upload_dir.rglob("*"):
         if f.is_file():
             try:
@@ -192,7 +212,7 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
             except Exception:
                 pass
 
-    # Rclone upload
+    # 4. Rclone upload
     sanitized_folder = sanitize_name(course_title)
     target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized_folder}"
     log(f"Uploading to Google Drive: {target_remote_path}...", "INFO")
@@ -221,6 +241,7 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     except Exception as e:
         log(f"Lỗi Rclone: {e}", "ERROR")
         return False
+
 
 
 # ==========================================

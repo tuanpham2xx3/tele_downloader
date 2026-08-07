@@ -405,17 +405,34 @@ def repackage_extracted(course_dir: Path, upload_dir: Path) -> bool:
     video_files = [f for f in all_files if f.is_file() and f.suffix.lower() in ('.mp4', '.mkv', '.mov', '.avi')]
     other_files = [f for f in all_files if f.is_file() and f not in video_files]
 
-    log(f"Kết quả giải nén tổng hợp: {len(video_files)} video (.mp4), {len(other_files)} file tài liệu khác.", "SUCCESS")
+    log(f"Kết quả giải nén tổng hợp: {len(video_files)} video, {len(other_files)} file tài liệu khác.", "SUCCESS")
 
-    # 1. Di chuyển toàn bộ video .mp4 ra thư mục upload
+    if not video_files and not other_files:
+        log("Cảnh báo: Không tìm thấy file nào sau khi giải nén!", "WARN")
+        return False
+
+    # 1. Di chuyển toàn bộ video ra thư mục upload
     for vid in video_files:
         dest = upload_dir / vid.name
         if dest.exists():
             dest = upload_dir / f"{vid.stem}_{vid.stat().st_size}{vid.suffix}"
         shutil.move(str(vid), str(dest))
 
-    # 2. Nén toàn bộ file còn lại không phải video thành 1 file Class_Materials.zip duy nhất
-    # 3. Cập nhật mtime về thời gian hiện tại (ngày hôm nay) cho tất cả các file trước khi upload
+    # 2. Nén toàn bộ file còn lại (không phải video) thành Class_Materials.zip
+    if other_files:
+        log("Dóng gói tài liệu phụ thành Class_Materials.zip...", "INFO")
+        try:
+            import zipfile
+            zip_path = upload_dir / "Class_Materials.zip"
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for f in other_files:
+                    arcname = f.relative_to(extracted_dir)
+                    zf.write(f, arcname)
+            log(f"✔ Đã tạo Class_Materials.zip ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)", "SUCCESS")
+        except Exception as e:
+            log(f"Cảnh báo: Không thể nén Class_Materials.zip: {e}", "WARN")
+
+    # 3. Cập nhật mtime về thời gian hiện tại cho tất cả file trước khi upload
     for f in upload_dir.rglob("*"):
         if f.is_file():
             try:
