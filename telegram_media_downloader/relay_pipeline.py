@@ -504,7 +504,15 @@ async def main():
     if api_id_val == "2040":
         api_id_val = "21724"
         api_hash_val = "3e0fe5dadb9b1612e3e5b6d912b72449"
-    session_path = str(BASE_DIR / args.session)
+    # Đảm bảo đường dẫn session trỏ vào thư mục telegram_media_downloader
+    sess_name = args.session
+    if sess_name.endswith(".session"):
+        sess_name = sess_name[:-8]
+    session_path = str(BASE_DIR / sess_name)
+    if not Path(session_path + ".session").exists() and (BASE_DIR.parent / "telegram_media_downloader" / f"{sess_name}.session").exists():
+        session_path = str(BASE_DIR.parent / "telegram_media_downloader" / sess_name)
+    elif not Path(session_path + ".session").exists() and (BASE_DIR / "telegram_media_downloader" / f"{sess_name}.session").exists():
+        session_path = str(BASE_DIR / "telegram_media_downloader" / sess_name)
 
     # Các lỗi MTProto nghiêm trọng cần reconnect hoàn toàn
     FATAL_MTPROTO_KEYWORDS = [
