@@ -516,27 +516,33 @@ async def main():
         upload_dir.mkdir(parents=True, exist_ok=True)
 
 
-        # BƯỚC 3 & 4: TẢI VÀ GIẢI NÉN TRỰC TIẾP TỪNG FILE
-        log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp từng file đính kèm...", "INFO")
+        # BƯỚC 3 & 4: TẢI & GIẢI NÉN TRỰC TIẾP (3 FILE SONG SONG CÙNG LÚC)
+        log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (3 file song song cùng lúc)...", "INFO")
         download_success = True
         extracted_dir = course_dir / "extracted"
         extracted_dir.mkdir(parents=True, exist_ok=True)
 
-        for filename, msg in files:
+        file_semaphore = asyncio.Semaphore(3)
+
+        async def process_single_file(filename: str, msg: Any):
+            nonlocal download_success
             save_path = archives_dir / filename
             file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
-
             size_mb = file_size / 1024 / 1024 if file_size else 0.0
-            log(f"  - Đang tải [16 luồng]: {filename} ({size_mb:.1f} MB)...", "INFO")
-            try:
-                await parallel_download_media(client, msg, save_path, workers=16)
-                # Ngay sau khi tải xong 1 file ➔ Giải nén lập tức!
-                if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
-                    log(f"  - ⚡ Giải nén trực tiếp ngay lập tức: {filename}...", "INFO")
-                    extract_single_archive(save_path, extracted_dir)
-            except Exception as e:
-                log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
-                download_success = False
+
+            async with file_semaphore:
+                log(f"  - 🚀 Bắt đầu tải [3 file song song]: {filename} ({size_mb:.1f} MB)...", "INFO")
+                try:
+                    await client.download_media(msg, file=str(save_path))
+                    log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
+                    if not re.search(r'\.part(0[2-9]|[1-9]\d+)\.rar$', filename, re.I):
+                        extract_single_archive(save_path, extracted_dir)
+                except Exception as e:
+                    log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
+                    download_success = False
+
+        tasks = [process_single_file(fn, m) for fn, m in files]
+        await asyncio.gather(*tasks)
 
         if not download_success:
             log(f"Khóa học {course_title} bị lỗi khi tải/giải nén file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
