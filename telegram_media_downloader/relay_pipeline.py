@@ -39,9 +39,25 @@ BASE_DIR = Path(__file__).parent
 # ─── RAM Disk tự động: ưu tiên /dev/shm (Linux RAM disk), fallback về đĩa ───
 _SHM_DIR = Path("/dev/shm")
 _PREFER_RAM = _SHM_DIR.exists() and _SHM_DIR.is_dir()
-# Mỗi Relay dùng thư mục riêng trong /dev/shm (acc2 hay acc3 sẽ set runtime)
 _SHM_RELAY_NAME = "pipeline_relay_temp"
 TEMP_DIR = (_SHM_DIR / _SHM_RELAY_NAME) if _PREFER_RAM else (BASE_DIR / "temp_processing_relay")
+
+def get_best_ram_dir() -> Tuple[Optional[Path], float]:
+    """Tìm thư mục RAM Disk tốt nhất (/mnt/ramdisk hoặc /dev/shm)."""
+    best_path = None
+    max_free_gb = 0.0
+    for p in [Path("/mnt/ramdisk"), Path("/dev/shm")]:
+        if p.exists() and p.is_dir():
+            try:
+                st = shutil.disk_usage(str(p))
+                free_gb = st.free / 1024**3
+                if free_gb > max_free_gb:
+                    max_free_gb = free_gb
+                    best_path = p
+            except Exception:
+                pass
+    return best_path, max_free_gb
+
 
 if _PREFER_RAM:
     _stat = shutil.disk_usage(str(_SHM_DIR))
@@ -362,20 +378,14 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     )
     estimated_gb = max(total_mb / 1024 * 2.5, 2.0)
 
-    if _PREFER_RAM:
-        try:
-            shm_stat = shutil.disk_usage(str(_SHM_DIR))
-            shm_free_gb = shm_stat.free / 1024**3
-        except Exception:
-            shm_free_gb = 0
-        if shm_free_gb >= estimated_gb + 1.0:
-            course_dir = TEMP_DIR / sanitize_name(course_title)
-            log(f"[RAM Disk] Dùng /dev/shm cho [{course_title}] (free={shm_free_gb:.1f}GB, cần≈{estimated_gb:.1f}GB)", "INFO", log_path)
-        else:
-            course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
-            log(f"[Disk] /dev/shm chỉ còn {shm_free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN", log_path)
+    ram_dir, shm_free_gb = get_best_ram_dir()
+    if ram_dir and shm_free_gb >= (estimated_gb + 0.5):
+        course_dir = ram_dir / f"pipeline_{args.session}_temp" / sanitize_name(course_title)
+        log(f"[RAM Disk] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS", log_path)
     else:
-        course_dir = TEMP_DIR / sanitize_name(course_title)
+        course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
+        log(f"[Disk] RAM Disk chỉ còn {shm_free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN", log_path)
+
 
     archives_dir = course_dir / "archives"
     upload_dir   = course_dir / "upload"

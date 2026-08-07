@@ -22,8 +22,19 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 log_section() { echo -e "\n${BLUE}══════════════════════════════════════════${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}══════════════════════════════════════════${NC}"; }
 
-# ── BƯỚC 1: Chuẩn bị môi trường ──────────────────────────
-log_section "CHUẨN BỊ MÔI TRƯỜNG"
+# ── BƯỚC 1: Chuẩn bị môi trường & Mở rộng RAM Disk lên 10GB ───
+log_section "CHUẨN BỊ MÔI TRƯỜNG & RAM DISK"
+
+# Mở rộng /dev/shm từ 128MB mặc định của Docker lên 10GB RAM thực tế
+log_info "Cấu hình RAM Disk 10GB..."
+sudo mount -o remount,size=10G /dev/shm 2>/dev/null || true
+
+# Tạo thêm RAM disk dự phòng tại /mnt/ramdisk nếu cần
+if [ ! -d "/mnt/ramdisk" ]; then
+    sudo mkdir -p /mnt/ramdisk 2>/dev/null || true
+    sudo mount -t tmpfs -o size=10G tmpfs /mnt/ramdisk 2>/dev/null || true
+    sudo chmod 777 /mnt/ramdisk 2>/dev/null || true
+fi
 
 log_info "Python: $($PYTHON_BIN --version 2>&1)"
 log_info "Rclone: $(rclone --version 2>/dev/null | head -1 || echo 'NOT FOUND')"

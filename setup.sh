@@ -59,6 +59,16 @@ info "Cài Python dependencies..."
 $PYTHON_BIN -m pip install -q --upgrade telethon rich python-dotenv
 ok "Dependencies OK"
 
+# ── BƯỚC 2.5: Mở rộng RAM Disk lên 10GB ────────────────
+info "Mở rộng RAM disk /dev/shm lên 10GB..."
+sudo mount -o remount,size=10G /dev/shm 2>/dev/null || true
+if [ ! -d "/mnt/ramdisk" ]; then
+    sudo mkdir -p /mnt/ramdisk 2>/dev/null || true
+    sudo mount -t tmpfs -o size=10G tmpfs /mnt/ramdisk 2>/dev/null || true
+    sudo chmod 777 /mnt/ramdisk 2>/dev/null || true
+fi
+ok "RAM Disk 10GB OK"
+
 # ── BƯỚC 3: Cài 7z/unrar & Rclone ──────────────────────
 if ! command -v 7z &>/dev/null; then
     info "Cài 7z/unrar..."

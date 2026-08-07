@@ -50,41 +50,35 @@ BASE_DIR = Path(__file__).parent
 CSV_PATH = BASE_DIR / "full_hoahoc.csv"
 LOG_PATH = BASE_DIR / "pipeline.log"
 
-# ─── RAM Disk tự động: ưu tiên /dev/shm (Linux RAM disk), fallback về đĩa ───
-_SHM_DIR = Path("/dev/shm")
-_PREFER_RAM = _SHM_DIR.exists() and _SHM_DIR.is_dir()
-TEMP_DIR = (_SHM_DIR / "pipeline_acc1_temp") if _PREFER_RAM else (BASE_DIR / "temp_processing")
-
-if _PREFER_RAM:
-    import shutil as _shutil
-    _shm_stat = _shutil.disk_usage(str(_SHM_DIR))
-    print(f"[✔] RAM disk /dev/shm khả dụng! Free: {_shm_stat.free / 1024**3:.1f} GB | TEMP tại: {TEMP_DIR}")
-else:
-    print(f"[!] /dev/shm không khả dụng, dùng đĩa thường: {TEMP_DIR}")
-
-
-def check_shm_free_gb(min_gb: float = 2.0) -> bool:
-    """Kiểm tra RAM disk còn đủ chỗ không."""
-    if not _PREFER_RAM:
-        return True
-    try:
-        stat = shutil.disk_usage(str(_SHM_DIR))
-        free_gb = stat.free / 1024**3
-        return free_gb >= min_gb
-    except Exception:
-        return True
+def get_best_ram_dir() -> Tuple[Optional[Path], float]:
+    """Tìm thư mục RAM Disk tốt nhất (/mnt/ramdisk hoặc /dev/shm)."""
+    best_path = None
+    max_free_gb = 0.0
+    for p in [Path("/mnt/ramdisk"), Path("/dev/shm")]:
+        if p.exists() and p.is_dir():
+            try:
+                st = shutil.disk_usage(str(p))
+                free_gb = st.free / 1024**3
+                if free_gb > max_free_gb:
+                    max_free_gb = free_gb
+                    best_path = p
+            except Exception:
+                pass
+    return best_path, max_free_gb
 
 
 def get_temp_dir_for_course(course_title: str, estimated_gb: float = 3.0) -> Path:
     """Chọn TEMP_DIR thông minh: dùng RAM nếu đủ chỗ, fallback về đĩa."""
-    if _PREFER_RAM and check_shm_free_gb(estimated_gb + 1.0):
-        ram_path = _SHM_DIR / f"pipeline_acc1_temp" / sanitize_name(course_title)
-        log(f"[RAM Disk] Sử dụng /dev/shm cho [{course_title}] (free={shutil.disk_usage(str(_SHM_DIR)).free/1024**3:.1f}GB)", "INFO")
+    ram_dir, free_gb = get_best_ram_dir()
+    if ram_dir and free_gb >= (estimated_gb + 0.5):
+        ram_path = ram_dir / f"pipeline_acc1_temp" / sanitize_name(course_title)
+        log(f"[RAM Disk] Sử dụng {ram_dir} cho [{course_title}] (Free={free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS")
         return ram_path
     else:
         disk_path = BASE_DIR / "temp_processing" / sanitize_name(course_title)
-        log(f"[Disk] /dev/shm không đủ chỗ, dùng đĩa cho [{course_title}]", "WARN")
+        log(f"[Disk] RAM Disk chỉ còn {free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN")
         return disk_path
+
 
 # Global Live Log Memory Buffer
 log_history: List[str] = []
