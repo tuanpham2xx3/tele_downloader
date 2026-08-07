@@ -70,9 +70,9 @@ def get_best_ram_dir() -> Tuple[Optional[Path], float]:
 def get_temp_dir_for_course(course_title: str, estimated_gb: float = 3.0) -> Path:
     """Chọn TEMP_DIR thông minh: dùng RAM nếu đủ chỗ, fallback về đĩa."""
     ram_dir, free_gb = get_best_ram_dir()
-    if ram_dir and free_gb >= (estimated_gb + 0.5):
+    if ram_dir and free_gb >= 1.5:
         ram_path = ram_dir / f"pipeline_acc1_temp" / sanitize_name(course_title)
-        log(f"[RAM Disk] Sử dụng {ram_dir} cho [{course_title}] (Free={free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS")
+        log(f"[RAM Disk ⚡ 4 LUỒNG] Sử dụng {ram_dir} cho [{course_title}] (Free={free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS")
         return ram_path
     else:
         disk_path = BASE_DIR / "temp_processing" / sanitize_name(course_title)

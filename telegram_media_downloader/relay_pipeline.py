@@ -371,18 +371,14 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
     allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02")
 
-    # Ước lượng dung lượng để chọn RAM hay đĩa thường
-    total_mb = sum(
-        getattr(m.file, "size", 0) / 1024 / 1024
-        for m in msgs if getattr(m, "file", None)
-    )
-    estimated_gb = max(total_mb / 1024 * 2.5, 2.0)
+    # Ước lượng dung lượng chuẩn thực tế (chỉ tính 1.05x dung lượng file)
+    estimated_gb = max((total_mb / 1024) * 1.05, 0.5)
 
     ram_dir, shm_free_gb = get_best_ram_dir()
     sess_label = log_path.stem if log_path else "relay"
-    if ram_dir and shm_free_gb >= (estimated_gb + 0.5):
+    if ram_dir and shm_free_gb >= 1.5:
         course_dir = ram_dir / f"pipeline_{sess_label}_temp" / sanitize_name(course_title)
-        log(f"[RAM Disk] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS", log_path)
+        log(f"[RAM Disk ⚡ 4 LUỒNG] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={estimated_gb:.1f}GB)", "SUCCESS", log_path)
     else:
         course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
         log(f"[Disk] RAM Disk chỉ còn {shm_free_gb:.1f}GB, dùng đĩa cho [{course_title}]", "WARN", log_path)
