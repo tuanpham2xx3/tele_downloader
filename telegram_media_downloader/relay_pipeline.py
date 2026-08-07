@@ -434,10 +434,86 @@ async def main():
             log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
             retry_delay = 5  # reset sau khi kết nối thành công
 
-            # Lấy relay group entity
+    client_holder = [None]
+    retry_delay = 5
+    MAX_DELAY = 120
+
+    asyncio.ensure_future(queue_processor())
+
+    while True:
+        try:
+            client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
+            client_holder[0] = client
+            await client.start()
+            me = await client.get_me()
+            log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
+            retry_delay = 5
+
             relay_group = await client.get_entity(args.group)
 
-            # Buffer để gom tin nhắn theo từng khóa
+            # -------------------------------------------------------------
+            # BƯỚC 1: QUÉT LỊCH SỬ NHÓM ĐỂ LẤY TOÀN BỘ KHÓA ĐÃ FORWARD TỪ TRƯỚC
+            # -------------------------------------------------------------
+            log(f"[RELAY] 🔍 Quét lịch sử relay group {args.group} để tìm khóa học chưa hoàn thành...", "INFO", log_path)
+            history_msgs = []
+            async for hmsg in client.iter_messages(relay_group, limit=4000, reverse=True):
+                history_msgs.append(hmsg)
+
+            # Phân cụm các khóa học từ lịch sử
+            history_courses: List[Tuple[str, List[Any]]] = []
+            cur_hist_title = None
+            cur_hist_files = []
+
+            for hmsg in history_msgs:
+                htext = (getattr(hmsg, "text", "") or "").strip()
+                if htext.startswith(SENTINEL_PREFIX):
+                    if cur_hist_title and cur_hist_files:
+                        history_courses.append((cur_hist_title, cur_hist_files))
+                    cur_hist_title = htext[len(SENTINEL_PREFIX):].strip()
+                    cur_hist_files = []
+                    continue
+
+                if htext == SENTINEL_END:
+                    if cur_hist_title and cur_hist_files:
+                        history_courses.append((cur_hist_title, cur_hist_files))
+                    cur_hist_title = None
+                    cur_hist_files = []
+                    continue
+
+                if cur_hist_title and hmsg.media:
+                    cur_hist_files.append(hmsg)
+
+            if cur_hist_title and cur_hist_files:
+                history_courses.append((cur_hist_title, cur_hist_files))
+
+            log(f"[RELAY] ✔ Tìm thấy {len(history_courses)} khóa trong lịch sử nhóm!", "SUCCESS", log_path)
+
+            # Đẩy các khóa chưa làm vào queue
+            queued_count = 0
+            for h_title, h_files in history_courses:
+                clean_ht = normalize_title(h_title)
+                # Kiểm tra trạng thái trong CSV
+                csv_st = "PENDING"
+                if CSV_PATH.exists():
+                    try:
+                        with open(CSV_PATH, "r", encoding="utf-8") as cf:
+                            for row in csv.reader(cf):
+                                if row and normalize_title(row[0]) == clean_ht:
+                                    csv_st = row[1].strip() if len(row) > 1 else "PENDING"
+                    except Exception:
+                        pass
+
+                if csv_st == "COMPLETED":
+                    continue
+
+                await processing_queue.put((h_title, h_files))
+                queued_count += 1
+
+            log(f"[RELAY] 📋 Đã đưa {queued_count} khóa chưa hoàn thành vào hàng đợi xử lý!", "SUCCESS", log_path)
+
+            # -------------------------------------------------------------
+            # BƯỚC 2: LẮNG NGHE TIN NHẮN MỚI REALTIME
+            # -------------------------------------------------------------
             pending_batch: dict = {}
 
             @client.on(events.NewMessage(chats=relay_group))
@@ -455,12 +531,13 @@ async def main():
                     batch = pending_batch.pop("current", None)
                     if batch and batch["msgs"]:
                         await processing_queue.put((batch["title"], batch["msgs"]))
+                        log(f"[RELAY] ➕ Đã thêm [{batch['title']}] ({len(batch['msgs'])} file) vào hàng đợi!", "SUCCESS", log_path)
                     return
 
                 if "current" in pending_batch and msg.media:
                     pending_batch["current"]["msgs"].append(msg)
 
-            log(f"[RELAY] ⏳ Đang lắng nghe relay group {args.group}...", "INFO", log_path)
+            log(f"[RELAY] ⏳ Đang lắng nghe relay group {args.group} liên tục...", "INFO", log_path)
             await client.run_until_disconnected()
 
         except KeyboardInterrupt:
