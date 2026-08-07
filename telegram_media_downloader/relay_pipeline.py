@@ -325,6 +325,32 @@ def update_csv_status(title: str, status: str):
 async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                                 rclone_parent: str, log_path: Path):
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
+    clean_t = normalize_title(course_title)
+
+    # 1. Kiểm tra trạng thái CSV
+    if CSV_PATH.exists():
+        try:
+            with open(CSV_PATH, "r", encoding="utf-8") as cf:
+                for row in csv.reader(cf):
+                    if row and normalize_title(row[0]) == clean_t and row[1].strip() == "COMPLETED":
+                        log(f"[RELAY] ⏭ Khóa [{course_title}] đã COMPLETED trong CSV. Bỏ qua không tải!", "SUCCESS", log_path)
+                        return
+        except Exception:
+            pass
+
+    # 2. Kiểm tra trực tiếp trên Google Drive qua Rclone
+    sanitized = sanitize_name(course_title)
+    target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized}"
+    try:
+        chk_cmd = ["rclone", "lsf", target_remote_path, "--max-depth", "1"]
+        cres = subprocess.run(chk_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+        if cres.returncode == 0 and cres.stdout.strip():
+            log(f"[RELAY] ⏭ Khóa [{course_title}] đã TỒN TẠI trên Google Drive. Ghi CSV = COMPLETED & Bỏ qua!", "SUCCESS", log_path)
+            update_csv_status(course_title, "COMPLETED")
+            return
+    except Exception:
+        pass
+
     log(f"\n▶ [RELAY] Bắt đầu xử lý khóa: {course_title}", "SUCCESS", log_path)
 
     allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02")

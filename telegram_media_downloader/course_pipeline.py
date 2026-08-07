@@ -628,31 +628,39 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
 
 
 _remote_folders_cache = None
+_remote_cache_time = 0.0
 
-def get_all_remote_folders(rclone_parent: str) -> set:
-    global _remote_folders_cache
-    if _remote_folders_cache is not None:
+def get_all_remote_folders(rclone_parent: str, force_refresh: bool = False) -> set:
+    global _remote_folders_cache, _remote_cache_time
+    import time
+    now = time.time()
+    if not force_refresh and _remote_folders_cache is not None and (now - _remote_cache_time < 60):
         return _remote_folders_cache
 
-    log(f"⚡ Đang quét 1 lần duy nhất toàn bộ thư mục đã có trên Google Drive...", "INFO")
+    log(f"🔍 [DISPATCHER] Quét danh sách thư mục Google Drive qua Rclone...", "INFO")
+    log_dispatcher(f"🔍 [DISPATCHER] Quét danh sách thư mục Google Drive qua Rclone...", "INFO")
     cmd = ["rclone", "lsf", rclone_parent, "--dirs-only", "--max-depth", "1", "--fast-list"]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=45)
         if res.returncode == 0:
             folders = set(line.strip().rstrip('/') for line in res.stdout.splitlines() if line.strip())
             _remote_folders_cache = folders
-            log(f"✔ Đã quét xong! Tìm thấy {len(folders)} thư mục đã có sẵn trên Google Drive.", "SUCCESS")
+            _remote_cache_time = now
+            msg = f"✔ [DISPATCHER] Đã quét Google Drive! Tìm thấy {len(folders)} thư mục đã có sẵn trên Drive."
+            log(msg, "SUCCESS")
+            log_dispatcher(msg, "SUCCESS")
             return _remote_folders_cache
     except Exception as e:
-        log(f"Cảnh báo khi quét danh sách thư mục Google Drive: {e}", "WARN")
+        log(f"⚠️ Cảnh báo khi quét Rclone: {e}", "WARN")
 
-    _remote_folders_cache = set()
+    if _remote_folders_cache is None:
+        _remote_folders_cache = set()
     return _remote_folders_cache
 
 
-def check_rclone_folder_exists(rclone_parent: str, course_title: str) -> bool:
+def check_rclone_folder_exists(rclone_parent: str, course_title: str, force_refresh: bool = False) -> bool:
     sanitized_folder = sanitize_name(course_title)
-    existing_folders = get_all_remote_folders(rclone_parent)
+    existing_folders = get_all_remote_folders(rclone_parent, force_refresh=force_refresh)
     return sanitized_folder in existing_folders
 
 
@@ -801,7 +809,9 @@ async def main():
     # -------------------------------------------------------------
     # BƯỚC 3 & 4: BỘ ĐIỀU PHỐI GIÁM SÁT LIÊN TỤC & WORKER ĐỘC LẬP
     # -------------------------------------------------------------
-    # Danh sách toàn bộ khóa học cần tải
+    # Quét danh sách Google Drive ban đầu
+    get_all_remote_folders(rclone_parent, force_refresh=True)
+
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
         clean_t = normalize_title(c_title)
@@ -809,11 +819,15 @@ async def main():
         if st in ("COMPLETED", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
             continue
         if check_rclone_folder_exists(rclone_parent, c_title):
+            msg = f"⏭ [DISPATCHER] Khóa [{c_title}] đã TỒN TẠI trên Google Drive -> Note CSV = COMPLETED, không phân công."
+            log(msg, "SUCCESS")
+            log_dispatcher(msg, "SUCCESS")
             update_csv_status(c_title, "COMPLETED")
             continue
         pending_pool.append((idx, c_title, c_files))
 
     log(f"📋 Danh sách khóa học chờ phân công: {len(pending_pool)}/{len(courses_map)} khóa", "SUCCESS")
+    log_dispatcher(f"📋 Danh sách khóa học chờ phân công: {len(pending_pool)}/{len(courses_map)} khóa", "SUCCESS")
 
     pool_idx = 0
     pool_lock = asyncio.Lock()
@@ -835,7 +849,11 @@ async def main():
                 st = load_csv_status().get(c_title, "PENDING")
                 if st in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
                     continue
+                # Kiểm tra trực tiếp trên Google Drive trước khi giao worker
                 if check_rclone_folder_exists(rclone_parent, item[1]):
+                    msg = f"⏭ [DISPATCHER] Check Rclone: Khóa [{item[1]}] đã TỒN TẠI trên Google Drive -> Ghi CSV = COMPLETED & bỏ qua."
+                    log(msg, "SUCCESS")
+                    log_dispatcher(msg, "SUCCESS")
                     update_csv_status(item[1], "COMPLETED")
                     continue
                 return item
