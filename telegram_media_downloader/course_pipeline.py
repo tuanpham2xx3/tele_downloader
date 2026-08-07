@@ -954,29 +954,55 @@ async def main():
             for d in [archives_dir, upload_dir, extracted_dir]:
                 d.mkdir(parents=True, exist_ok=True)
 
-            log("BƯỚC 3 & 4: Tải & Giải nén trực tiếp (5 file song song cùng lúc, tận dụng 16GB RAM)...", "INFO")
+            # Giảm concurrency khi dùng đĩa (tránh disk I/O bão hòa)
+            is_ram = _PREFER_RAM and str(course_dir).startswith("/dev/shm")
+            max_concurrent = 4 if is_ram else 2  # RAM: 4 song song, đĩa: 2 song song
+            log(f"BƯỚC 3 & 4: Tải & Giải nén trực tiếp ({max_concurrent} file song song, {'RAM disk' if is_ram else 'đĩa thường'})...", "INFO")
             download_success = True
-            file_semaphore = asyncio.Semaphore(5)
+            file_semaphore = asyncio.Semaphore(max_concurrent)
 
             async def process_single_file(filename: str, msg: Any):
                 nonlocal download_success
                 save_path = archives_dir / filename
                 file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
                 size_mb = file_size / 1024 / 1024 if file_size else 0.0
-                dl_timeout = 14400 if size_mb > 2000 else 7200
+                # Timeout dựa theo tốc độ tối thiểu: 1MB/s, tối đa 3h
+                dl_timeout = min(max(int(size_mb / 1.0), 300), 10800)
 
                 async with file_semaphore:
-                    log(f"  - 🚀 Bắt đầu tải [3 file song song]: {filename} ({size_mb:.1f} MB)...", "INFO")
+                    log(f"  - 🚀 Bắt đầu tải: {filename} ({size_mb:.1f} MB, timeout={dl_timeout//60}phút)...", "INFO")
                     try:
-                        await asyncio.wait_for(
-                            client.download_media(msg, file=str(save_path)),
-                            timeout=dl_timeout
-                        )
+                        # Progress watchdog: hủy nếu 5 phút không có bytes mới
+                        last_size = [0]
+                        last_progress_time = [asyncio.get_event_loop().time()]
+                        STALL_TIMEOUT = 300  # 5 phút không có bytes mới
+
+                        async def watchdog():
+                            while True:
+                                await asyncio.sleep(60)
+                                cur = save_path.stat().st_size if save_path.exists() else 0
+                                if cur > last_size[0]:
+                                    last_size[0] = cur
+                                    last_progress_time[0] = asyncio.get_event_loop().time()
+                                    log(f"  - 📊 [{filename}] Progress: {cur/1024/1024:.1f}MB/{size_mb:.1f}MB", "INFO")
+                                elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
+                                    raise asyncio.TimeoutError(f"Stalled 5min")
+
+                        wd_task = asyncio.ensure_future(watchdog())
+                        try:
+                            await asyncio.wait_for(
+                                client.download_media(msg, file=str(save_path)),
+                                timeout=dl_timeout
+                            )
+                        finally:
+                            wd_task.cancel()
+
                         log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
                         if not re.search(r'\.part\d+\.rar$', filename, re.I):
                             extract_single_archive(save_path, extracted_dir)
                     except asyncio.TimeoutError:
-                        log(f"  - ✘ TIMEOUT sau {dl_timeout//3600}h khi tải {filename}, bỏ qua.", "ERROR")
+                        elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
+                        log(f"  - ✘ STALL/TIMEOUT sau {elapsed}s khi tải {filename}, bỏ qua.", "ERROR")
                         download_success = False
                     except Exception as e:
                         log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
