@@ -743,39 +743,71 @@ async def main():
         num_workers = 1 + (1 if relay_acc2 else 0) + (1 if relay_acc3 else 0)
         pending_slot_counter = 0
 
+        acc2_current_course = None
+        acc3_current_course = None
+
+        log("🚀 Dispatcher đã kích hoạt chế độ Điều hướng 1 khóa/acc (Chờ làm xong mới gửi tiếp)...", "SUCCESS")
+
         for idx, (course_title, files) in enumerate(courses_map, 1):
             clean_title = normalize_title(course_title)
-            current_status = csv_status.get(clean_title, "PENDING")
-            if current_status in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3"):
-                log(f"⏭ Khóa [{clean_title}] status={current_status} trong CSV, BỎ QUA không gửi lại.", "WARN")
+
+            # Đọc lại CSV mới nhất để đảm bảo thông tin chính xác
+            latest_csv_status = load_csv_status()
+            current_status = latest_csv_status.get(clean_title, "PENDING")
+
+            if current_status in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+                log(f"⏭ Khóa [{clean_title}] status={current_status} trong CSV, BỎ QUA.", "WARN")
                 continue
 
             if check_rclone_folder_exists(rclone_parent, course_title):
-                log(f"⏭ Khóa [{course_title}] TỒN TẠI trên Google Drive, BỎ QUA.", "SUCCESS")
+                log(f"⏭ Khóa [{clean_title}] TỒN TẠI trên Google Drive, BỎ QUA.", "SUCCESS")
                 update_csv_status(course_title, "COMPLETED")
-                csv_status[course_title] = "COMPLETED"
                 continue
 
             slot = pending_slot_counter % num_workers
             pending_slot_counter += 1
 
             if slot == 0:
-                log(f"🟢 [Dispatcher] Phân công khóa [{course_title}] -> Acc 1 Queue", "INFO")
+                log(f"🟢 [Dispatcher] Giao khóa [{clean_title}] -> Acc 1 Queue", "INFO")
                 await acc1_local_queue.put((idx, course_title, files))
+
             elif slot == 1 and relay_acc2:
-                log(f"🔵 [Dispatcher] Forward {len(files)} file [{course_title}] -> Group Acc 2 ({relay_acc2})...", "INFO")
+                # CHỜ ACC 2 LÀM XONG KHÓA TRƯỚC RỒI MỚI FORWARD KHÓA TIẾP THEO
+                if acc2_current_course:
+                    log(f"⏳ [Dispatcher] Acc 2 đang bận xử lý [{acc2_current_course}], chờ Acc 2 hoàn tất...", "INFO")
+                    while True:
+                        latest_csv = load_csv_status()
+                        st = latest_csv.get(acc2_current_course, "FORWARDED_ACC2")
+                        if st != "FORWARDED_ACC2":
+                            log(f"✔ [Dispatcher] Acc 2 đã xong [{acc2_current_course}] (status={st}), gửi khóa tiếp theo!", "SUCCESS")
+                            break
+                        await asyncio.sleep(5)
+
+                log(f"🔵 [Dispatcher] Forward 1 khóa duy nhất [{clean_title}] ({len(files)} file) -> Group Acc 2 ({relay_acc2})...", "INFO")
                 fwd_ok = await forward_course_to_relay(client, relay_acc2, course_title, files)
                 if fwd_ok:
                     update_csv_status(course_title, "FORWARDED_ACC2")
-                    csv_status[course_title] = "FORWARDED_ACC2"
+                    acc2_current_course = clean_title
                 else:
                     update_csv_status(course_title, "FAILED_FORWARD")
+
             elif slot == 2 and relay_acc3:
-                log(f"🟠 [Dispatcher] Forward {len(files)} file [{course_title}] -> Group Acc 3 ({relay_acc3})...", "INFO")
+                # CHỜ ACC 3 LÀM XONG KHÓA TRƯỚC RỒI MỚI FORWARD KHÓA TIẾP THEO
+                if acc3_current_course:
+                    log(f"⏳ [Dispatcher] Acc 3 đang bận xử lý [{acc3_current_course}], chờ Acc 3 hoàn tất...", "INFO")
+                    while True:
+                        latest_csv = load_csv_status()
+                        st = latest_csv.get(acc3_current_course, "FORWARDED_ACC3")
+                        if st != "FORWARDED_ACC3":
+                            log(f"✔ [Dispatcher] Acc 3 đã xong [{acc3_current_course}] (status={st}), gửi khóa tiếp theo!", "SUCCESS")
+                            break
+                        await asyncio.sleep(5)
+
+                log(f"🟠 [Dispatcher] Forward 1 khóa duy nhất [{clean_title}] ({len(files)} file) -> Group Acc 3 ({relay_acc3})...", "INFO")
                 fwd_ok = await forward_course_to_relay(client, relay_acc3, course_title, files)
                 if fwd_ok:
                     update_csv_status(course_title, "FORWARDED_ACC3")
-                    csv_status[course_title] = "FORWARDED_ACC3"
+                    acc3_current_course = clean_title
                 else:
                     update_csv_status(course_title, "FAILED_FORWARD")
 

@@ -7,5 +7,7 @@ Chrome_Telegram_Profile/
 __pycache__/
 *.pyc
 
-# User-generated URL exports.
+# User-generated URL exports and status CSV.
 telegram-get-files-*.txt
+*.log
+telegram_media_downloader/full_hoahoc.csv
