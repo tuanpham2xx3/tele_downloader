@@ -516,6 +516,13 @@ async def main():
         try:
             client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
             client_holder[0] = client
+            await client.connect()
+            if not await client.is_user_authorized():
+                log(f"🔴 [ERROR] Session [{args.session}] chưa đăng nhập hoặc hết hạn!", "ERROR", log_path)
+                log(f"👉 Vui lòng chạy lệnh sau trên terminal để đăng nhập: python3 login.py {args.session}", "WARN", log_path)
+                await client.disconnect()
+                break
+
             await client.start()
             me = await client.get_me()
             log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
