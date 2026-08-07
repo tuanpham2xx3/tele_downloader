@@ -408,7 +408,8 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         save_path = archives_dir / fname
         file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
         size_mb = file_size / 1024 / 1024 if file_size else 0.0
-        dl_timeout = min(max(int(size_mb / 1.0), 300), 10800)  # 1MB/s min, max 3h
+        # Timeout dựa theo tốc độ tối thiểu: 0.15MB/s, tối thiểu 30phút, tối đa 8h
+        dl_timeout = min(max(int(size_mb / 0.15), 1800), 28800)
 
         async with sem:
             log(f"  - 🚀 [RELAY] Tải: {fname} ({size_mb:.1f} MB, timeout={dl_timeout//60}phút)...", "INFO", log_path)

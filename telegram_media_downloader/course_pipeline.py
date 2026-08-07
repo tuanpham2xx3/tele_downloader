@@ -982,8 +982,8 @@ async def main():
                 save_path = archives_dir / filename
                 file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
                 size_mb = file_size / 1024 / 1024 if file_size else 0.0
-                # Timeout dựa theo tốc độ tối thiểu: 1MB/s, tối đa 3h
-                dl_timeout = min(max(int(size_mb / 1.0), 300), 10800)
+                # Timeout dựa theo tốc độ tối thiểu: 0.15MB/s, tối thiểu 30phút, tối đa 8h
+                dl_timeout = min(max(int(size_mb / 0.15), 1800), 28800)
 
                 async with file_semaphore:
                     log(f"  - 🚀 Bắt đầu tải: {filename} ({size_mb:.1f} MB, timeout={dl_timeout//60}phút)...", "INFO")
