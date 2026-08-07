@@ -6,7 +6,7 @@ PYTHON_BIN="python3"
 PIPELINE_SCRIPT="./telegram_media_downloader/course_pipeline.py"
 RELAY_SCRIPT="./telegram_media_downloader/relay_pipeline.py"
 WEBSERVER_SCRIPT="./webserver.py"
-RCLONE_DEST="gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
+RCLONE_DEST="getlink,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
 RELAY_GROUP_ACC2="-5040203514"
 RELAY_GROUP_ACC3="-5281140814"
 

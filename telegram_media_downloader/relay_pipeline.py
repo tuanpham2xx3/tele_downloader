@@ -474,7 +474,7 @@ async def main():
     args = parser.parse_args()
 
     log_path = BASE_DIR / f"relay_{args.session}.log"
-    rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
+    rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "getlink,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
 
     # Gán TEMP_DIR riêng theo session để tránh conflict giữa Acc 2 và Acc 3
     global TEMP_DIR

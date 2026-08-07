@@ -720,7 +720,7 @@ async def main():
     log("==========================================", "INFO")
 
     # Cấu hình Rclone Parent Folder
-    rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
+    rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "getlink,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
     log(f"Thư mục cha Rclone Google Drive: {rclone_parent}", "INFO")
 
     # Cấu hình relay groups từ args hoặc biến môi trường
