@@ -16,12 +16,36 @@ echo "=================================================="
 echo "  🔧 SETUP - SAU KHI ONA RESET"
 echo "=================================================="
 
+# ── BƯỚC 0: Tự động chuyển vào đúng thư mục dự án ─────
+REPO_URL="https://github.com/tuanpham2xx3/tele_downloader.git"
+
+if [ -d "telegram_media_downloader" ]; then
+    info "Đang ở trong thư mục dự án: $(pwd)"
+elif [ -d "tele_downloader/telegram_media_downloader" ]; then
+    cd tele_downloader
+    info "Đã chuyển vào thư mục: $(pwd)"
+elif [ -d "app/telegram_media_downloader" ]; then
+    cd app
+    info "Đã chuyển vào thư mục: $(pwd)"
+else
+    info "Không tìm thấy thư mục dự án. Tiến hành clone $REPO_URL..."
+    git clone $REPO_URL tele_downloader
+    cd tele_downloader
+    info "Đã clone và chuyển vào: $(pwd)"
+fi
+
+mkdir -p telegram_media_downloader
+
 # ── BƯỚC 1: Pull code ────────────────────────────────
 info "Pull code mới nhất từ GitHub..."
-git fetch origin main
-git reset --hard origin/main
-git pull origin main
-ok "Code cập nhật xong"
+if git rev-parse --is-inside-work-tree &>/dev/null; then
+    git fetch origin main 2>/dev/null || true
+    git reset --hard origin/main 2>/dev/null || true
+    git pull origin main 2>/dev/null || true
+    ok "Code cập nhật xong"
+else
+    warn "Không phải git repository, bỏ qua git pull."
+fi
 
 # ── BƯỚC 2: Cài dependencies ─────────────────────────
 info "Cài Python dependencies..."
@@ -92,6 +116,7 @@ async def login():
         return
     api_id   = os.environ.get('TELERECON_API_ID',   '2040')
     api_hash = os.environ.get('TELERECON_API_HASH', 'b18441a12607e109d9496d9a244ead1c')
+    os.makedirs('telegram_media_downloader', exist_ok=True)
     session  = 'telegram_media_downloader/${sess}'
     client   = TelegramClient(session, int(api_id), str(api_hash))
     await client.start()
