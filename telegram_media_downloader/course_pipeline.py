@@ -1015,7 +1015,13 @@ async def main():
 
                         log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
                         if not re.search(r'\.part\d+\.rar$', filename, re.I):
-                            extract_single_archive(save_path, extracted_dir)
+                            if extract_single_archive(save_path, extracted_dir):
+                                # Xóa ngay file nén gốc để thu hồi RAM Disk
+                                try:
+                                    save_path.unlink()
+                                    log(f"  - 🗑️ Đã xóa file nén {filename} để thu hồi RAM Disk", "INFO")
+                                except Exception:
+                                    pass
                     except asyncio.TimeoutError:
                         elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
                         log(f"  - ✘ STALL/TIMEOUT sau {elapsed}s khi tải {filename}, bỏ qua.", "ERROR")

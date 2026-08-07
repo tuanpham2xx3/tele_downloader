@@ -437,7 +437,13 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                 wd_task.cancel()
                 log(f"  - ✔ [RELAY] Tải xong {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
                 if not re.search(r'\.part\d+\.rar$', fname, re.I):
-                    extract_single_archive(save_path, extracted_dir)
+                    if extract_single_archive(save_path, extracted_dir):
+                        # Xóa ngay file nén gốc để thu hồi RAM Disk
+                        try:
+                            save_path.unlink()
+                            log(f"  - 🗑️ Đã xóa file nén {fname} để thu hồi RAM Disk", "INFO", log_path)
+                        except Exception:
+                            pass
             except asyncio.TimeoutError:
                 wd_task.cancel()
                 elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
