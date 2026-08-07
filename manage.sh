@@ -41,7 +41,21 @@ while true; do
             ;;
         4)
             echo "☁️ Khởi chạy cấu hình Rclone Google Drive..."
-            rclone config reconnect gdrive: config_is_local false
+            echo "👉 Copy đường link bên dưới dán vào trình duyệt, đăng nhập Google, lấy mã dán lại vào đây:"
+            echo ""
+            TOKEN=$(rclone authorize "drive")
+            if [ -n "$TOKEN" ]; then
+                mkdir -p ~/.config/rclone
+                cat <<EOF > ~/.config/rclone/rclone.conf
+[gdrive]
+type = drive
+scope = drive
+token = $TOKEN
+root_folder_id = 1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-
+EOF
+                echo ""
+                echo "🎉 ĐÃ KẾT NỐI TÀI KHOẢN GOOGLE DRIVE THÀNH CÔNG!"
+            fi
             ;;
         5)
             echo "🔍 Kiểm tra Telegram..."
