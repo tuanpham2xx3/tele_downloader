@@ -602,24 +602,27 @@ async def main():
                 download_success = False
 
         if not download_success:
-            log(f"Khóa học {course_title} bị lỗi khi tải file, chuyển sang khóa tiếp theo.", "ERROR")
+            log(f"Khóa học {course_title} bị lỗi khi tải file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
             update_csv_status(course_title, "FAILED_DOWNLOAD")
+            shutil.rmtree(str(course_dir), ignore_errors=True)
             continue
 
         # BƯỚC 4: GIẢI NÉN & ĐÓNG GÓI (.MP4 VÀ CLASS_MATERIALS.ZIP)
         log("BƯỚC 4: Giải nén & Phân loại file...", "INFO")
         extracted_ok = extract_and_repackage(course_dir, upload_dir)
         if not extracted_ok:
-            log(f"Lỗi ở bước giải nén cho khóa {course_title}", "ERROR")
+            log(f"Lỗi ở bước giải nén cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
             update_csv_status(course_title, "FAILED_EXTRACT")
+            shutil.rmtree(str(course_dir), ignore_errors=True)
             continue
 
         # BƯỚC 5: UPLOAD LÊN GOOGLE DRIVE QUA RCLONE
         log("BƯỚC 5: Upload lên Google Drive qua Rclone...", "INFO")
         uploaded_ok = rclone_upload(upload_dir, rclone_parent, course_title)
         if not uploaded_ok:
-            log(f"Thất bại khi Upload Rclone cho khóa {course_title}", "ERROR")
+            log(f"Thất bại khi Upload Rclone cho khóa {course_title}, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
             update_csv_status(course_title, "FAILED_RCLONE")
+            shutil.rmtree(str(course_dir), ignore_errors=True)
             continue
 
         # BƯỚC 6: XÓA SẢN PHẨM TRÊN UBUNTU & CẬP NHẬT CSV STATUS
