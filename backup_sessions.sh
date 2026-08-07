@@ -24,6 +24,9 @@ if [ -z "$(git config user.name)" ]; then
     git config user.name "tuanpham2xx3"
 fi
 
+echo -e "${CYAN}[INFO] Đang đồng bộ git repo...${NC}"
+git pull --rebase origin main 2>/dev/null || true
+
 echo -e "${CYAN}[INFO] Đang đẩy session files lên GitHub...${NC}"
 git add telegram_media_downloader/*.session
 git commit -m "chore: backup telegram session files"
