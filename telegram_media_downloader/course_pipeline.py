@@ -261,6 +261,12 @@ def start_web_log_server(port: int = 5000):
 # ==========================================
 # HELPER FUNCTIONS & REGEX
 # ==========================================
+def normalize_title(title: str) -> str:
+    if not title:
+        return ""
+    return re.sub(r'[*`_]', '', title).strip()
+
+
 def sanitize_name(name: str) -> str:
     clean = re.sub(r'[\\/*?:"<>|]', "", name).strip()
     return clean[:120] if clean else "Unassigned_Course"
