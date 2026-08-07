@@ -49,7 +49,30 @@ console = Console()
 BASE_DIR = Path(__file__).parent
 CSV_PATH = BASE_DIR / "full_hoahoc.csv"
 LOG_PATH = BASE_DIR / "pipeline.log"
-TEMP_DIR = BASE_DIR / "temp_processing"
+
+# ─── RAM Disk tự động: ưu tiên /dev/shm (Linux RAM disk), fallback về đĩa ───
+_SHM_DIR = Path("/dev/shm")
+_PREFER_RAM = _SHM_DIR.exists() and _SHM_DIR.is_dir()
+TEMP_DIR = (_SHM_DIR / "pipeline_acc1_temp") if _PREFER_RAM else (BASE_DIR / "temp_processing")
+
+if _PREFER_RAM:
+    import shutil as _shutil
+    _shm_stat = _shutil.disk_usage(str(_SHM_DIR))
+    print(f"[✔] RAM disk /dev/shm khả dụng! Free: {_shm_stat.free / 1024**3:.1f} GB | TEMP tại: {TEMP_DIR}")
+else:
+    print(f"[!] /dev/shm không khả dụng, dùng đĩa thường: {TEMP_DIR}")
+
+
+def check_shm_free_gb(min_gb: float = 2.0) -> bool:
+    """Kiểm tra RAM disk còn đủ chỗ không (mặc định cần >=2GB free)."""
+    if not _PREFER_RAM:
+        return True  # đĩa thường không cần kiểm tra
+    try:
+        stat = shutil.disk_usage(str(_SHM_DIR))
+        free_gb = stat.free / 1024**3
+        return free_gb >= min_gb
+    except Exception:
+        return True
 
 # Global Live Log Memory Buffer
 log_history: List[str] = []

@@ -35,7 +35,20 @@ except ImportError:
     sys.exit(1)
 
 BASE_DIR = Path(__file__).parent
-TEMP_DIR = BASE_DIR / "temp_processing_relay"
+
+# ─── RAM Disk tự động: ưu tiên /dev/shm (Linux RAM disk), fallback về đĩa ───
+_SHM_DIR = Path("/dev/shm")
+_PREFER_RAM = _SHM_DIR.exists() and _SHM_DIR.is_dir()
+# Mỗi Relay dùng thư mục riêng trong /dev/shm (acc2 hay acc3 sẽ set runtime)
+_SHM_RELAY_NAME = "pipeline_relay_temp"
+TEMP_DIR = (_SHM_DIR / _SHM_RELAY_NAME) if _PREFER_RAM else (BASE_DIR / "temp_processing_relay")
+
+if _PREFER_RAM:
+    _stat = shutil.disk_usage(str(_SHM_DIR))
+    print(f"[✔] RAM disk /dev/shm khả dụng! Free: {_stat.free / 1024**3:.1f} GB | TEMP tại: {TEMP_DIR}")
+else:
+    print(f"[!] /dev/shm không khả dụng, dùng đĩa thường: {TEMP_DIR}")
+
 
 # ==========================================
 # LOGGING
@@ -393,6 +406,15 @@ async def main():
 
     log_path = BASE_DIR / f"relay_{args.session}.log"
     rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
+
+    # Gán TEMP_DIR riêng theo session để tránh conflict giữa Acc 2 và Acc 3
+    global TEMP_DIR
+    if _PREFER_RAM:
+        TEMP_DIR = _SHM_DIR / f"pipeline_{args.session}_temp"
+        _stat = shutil.disk_usage(str(_SHM_DIR))
+        log(f"[RAM Disk] Dùng /dev/shm cho {args.session} — Free: {_stat.free / 1024**3:.1f} GB → {TEMP_DIR}", "SUCCESS", log_path)
+    else:
+        TEMP_DIR = BASE_DIR / f"temp_processing_{args.session}"
 
     start_web_log_server(args.port)
     log(f"🚀 Relay Pipeline khởi động | Session: {args.session} | Group: {args.group}", "SUCCESS", log_path)
