@@ -40,10 +40,8 @@ while true; do
             echo "✔ Đã lưu cấu hình ~/.config/rclone/rclone.conf thành công!"
             ;;
         4)
-            echo "☁️ Khởi chạy cấu hình Rclone Google Drive tự động..."
-            echo "👉 Bạn chỉ cần copy đường link bên dưới dán vào trình duyệt để đăng nhập Google, sau đó copy mã xác nhận dán lại vào đây!"
-            echo ""
-            rclone config create gdrive drive config_is_local false scope "drive"
+            echo "☁️ Khởi chạy cấu hình Rclone Google Drive..."
+            rclone config reconnect gdrive: config_is_local false
             ;;
         5)
             echo "🔍 Kiểm tra Telegram..."
