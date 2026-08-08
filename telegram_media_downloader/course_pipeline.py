@@ -1039,12 +1039,12 @@ async def main():
 
                         async def watchdog():
                             while True:
-                                await asyncio.sleep(60)
+                                await asyncio.sleep(5)
                                 cur = save_path.stat().st_size if save_path.exists() else 0
                                 if cur > last_size[0]:
                                     last_size[0] = cur
                                     last_progress_time[0] = asyncio.get_event_loop().time()
-                                    log(f"  - 📊 [{filename}] Progress: {cur/1024/1024:.1f}MB/{size_mb:.1f}MB", "INFO")
+                                    log(f"  - 📊 [ACC 1] [{filename}] Progress: {cur/1024/1024:.1f}MB/{size_mb:.1f}MB", "INFO")
                                 elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
                                     raise asyncio.TimeoutError(f"Stalled 5min")
 
