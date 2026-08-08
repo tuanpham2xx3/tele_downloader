@@ -861,7 +861,18 @@ async def main():
     def is_course_completely_done(c_title: str) -> bool:
         clean_t = normalize_title(c_title)
         st = load_csv_status().get(clean_t, "PENDING")
-        return st == "COMPLETED"
+        if st == "COMPLETED":
+            return True
+        if check_rclone_folder_exists(rclone_parent, c_title):
+            c_low = c_title.strip().lower()
+            if "drawing & coloring anime-style characters" in c_low or "mastering vtuber creation" in c_low:
+                update_csv_status(c_title, "COMPLETED")
+                return True
+            if is_course_partially_in_progress and is_course_partially_in_progress(c_title):
+                return False
+            update_csv_status(c_title, "COMPLETED")
+            return True
+        return False
 
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
