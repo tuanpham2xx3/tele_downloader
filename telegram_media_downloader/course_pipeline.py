@@ -858,11 +858,9 @@ async def main():
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
         clean_t = normalize_title(c_title)
-        st = csv_status.get(clean_t, "PENDING")
-        if st in ("COMPLETED", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
-            continue
-        if check_rclone_folder_exists(rclone_parent, c_title):
-            msg = f"⏭ [DISPATCHER] Khóa [{c_title}] đã TỒN TẠI trên Google Drive -> Note CSV = COMPLETED, không phân công."
+        # Chỉ bỏ qua khi khởi tạo nếu được xác nhận HOÀN THÀNH 100% ALL PACKS trong tracker
+        if is_course_fully_completed and is_course_fully_completed(c_title):
+            msg = f"⏭ [DISPATCHER] Khóa [{c_title}] đã TẢI HOÀN TẤT 100% ALL PACKS -> Note CSV = COMPLETED, không phân công."
             log(msg, "SUCCESS")
             log_dispatcher(msg, "SUCCESS")
             update_csv_status(c_title, "COMPLETED")
