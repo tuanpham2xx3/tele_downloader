@@ -445,28 +445,55 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
         async with sem:
             log(f"  - 🚀 [RELAY] Tải: {fname} ({size_mb:.1f} MB, timeout={dl_timeout//60}phút)...", "INFO", log_path)
-            last_size = [0]
-            last_progress_time = [asyncio.get_event_loop().time()]
-            STALL_TIMEOUT = 300  # 5 phút không có bytes = treo
+            max_retries = 3
+            file_downloaded = False
+            for attempt in range(1, max_retries + 1):
+                last_size = [0]
+                last_progress_time = [asyncio.get_event_loop().time()]
+                STALL_TIMEOUT = 300  # 5 phút không có bytes = treo
 
-            async def watchdog():
-                while True:
-                    await asyncio.sleep(60)
-                    cur = save_path.stat().st_size if save_path.exists() else 0
-                    if cur > last_size[0]:
-                        last_size[0] = cur
-                        last_progress_time[0] = asyncio.get_event_loop().time()
-                        log(f"  - 📊 [{fname}] {cur/1024/1024:.1f}MB/{size_mb:.1f}MB", "INFO", log_path)
-                    elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
-                        raise asyncio.TimeoutError("Stalled 5min")
+                async def watchdog():
+                    while True:
+                        await asyncio.sleep(60)
+                        cur = save_path.stat().st_size if save_path.exists() else 0
+                        if cur > last_size[0]:
+                            last_size[0] = cur
+                            last_progress_time[0] = asyncio.get_event_loop().time()
+                            log(f"  - 📊 [{fname}] {cur/1024/1024:.1f}MB/{size_mb:.1f}MB", "INFO", log_path)
+                        elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
+                            raise asyncio.TimeoutError("Stalled 5min")
 
-            wd_task = asyncio.ensure_future(watchdog())
-            try:
-                await asyncio.wait_for(
-                    client.download_media(msg, file=str(save_path)),
-                    timeout=dl_timeout
-                )
-                wd_task.cancel()
+                wd_task = asyncio.ensure_future(watchdog())
+                try:
+                    await asyncio.wait_for(
+                        client.download_media(msg, file=str(save_path)),
+                        timeout=dl_timeout
+                    )
+                    file_downloaded = True
+                    break
+                except OSError as oe:
+                    if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
+                        log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {fname}, đợi 15s giải phóng RAM...", "WARN", log_path)
+                        await asyncio.sleep(15)
+                        continue
+                    log(f"  - ⚠️ [RELAY] Lỗi đĩa khi tải {fname} (Lần {attempt}/{max_retries}): {oe}", "WARN", log_path)
+                    await asyncio.sleep(5)
+                except asyncio.TimeoutError:
+                    elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
+                    log(f"  - ⚠️ [RELAY] STALL/TIMEOUT sau {elapsed}s khi tải {fname} (Lần {attempt}/{max_retries})", "WARN", log_path)
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    log(f"  - ⚠️ [RELAY] Lỗi kết nối khi tải {fname} (Lần {attempt}/{max_retries}): {e}", "WARN", log_path)
+                    try:
+                        if not getattr(client, "is_connected", True):
+                            await client.connect()
+                    except Exception:
+                        pass
+                    await asyncio.sleep(5)
+                finally:
+                    wd_task.cancel()
+
+            if file_downloaded:
                 log(f"  - ✔ [RELAY] Tải xong {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
                 if not is_non_header_split_volume(fname):
                     if extract_single_archive(save_path, extracted_dir):
@@ -482,34 +509,8 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                                 log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO", log_path)
                             except Exception:
                                 pass
-            except asyncio.TimeoutError:
-                wd_task.cancel()
-                elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
-                log(f"  - ✘ [RELAY] STALL/TIMEOUT sau {elapsed}s khi tải {fname}, bỏ qua.", "ERROR", log_path)
-                download_success = False
-            except OSError as oe:
-                wd_task.cancel()
-                if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
-                    log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {fname}, đợi 15s giải phóng RAM...", "WARN", log_path)
-                    await asyncio.sleep(15)
-                    try:
-                        await asyncio.wait_for(client.download_media(msg, file=str(save_path)), timeout=dl_timeout)
-                        log(f"  - ✔ [RELAY TẢI LẠI THÀNH CÔNG] {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
-                        if not is_non_header_split_volume(fname):
-                            if extract_single_archive(save_path, extracted_dir):
-                                try:
-                                    save_path.unlink()
-                                except Exception:
-                                    pass
-                    except Exception as re_e:
-                        log(f"  - ✘ [RELAY] Thất bại khi tải lại {fname}: {re_e}", "ERROR", log_path)
-                        download_success = False
-                else:
-                    log(f"  - ✘ [RELAY] Lỗi khi tải {fname}: {oe}", "ERROR", log_path)
-                    download_success = False
-            except Exception as e:
-                wd_task.cancel()
-                log(f"  - ✘ [RELAY] Lỗi khi tải {fname}: {e}", "ERROR", log_path)
+            else:
+                log(f"  - ✘ [RELAY] Thất bại 100% sau {max_retries} lần thử khi tải {fname}", "ERROR", log_path)
                 download_success = False
 
     tasks = [dl_file(m) for m in msgs]

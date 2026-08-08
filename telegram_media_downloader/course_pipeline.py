@@ -1016,13 +1016,13 @@ async def main():
                 save_path = archives_dir / filename
                 file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
                 size_mb = file_size / 1024 / 1024 if file_size else 0.0
-                # Timeout dựa theo tốc độ tối thiểu: 0.15MB/s, tối thiểu 30phút, tối đa 8h
                 dl_timeout = min(max(int(size_mb / 0.15), 1800), 28800)
 
                 async with file_semaphore:
                     log(f"  - 🚀 Bắt đầu tải: {filename} ({size_mb:.1f} MB, timeout={dl_timeout//60}phút)...", "INFO")
-                    try:
-                        # Progress watchdog: hủy nếu 5 phút không có bytes mới
+                    max_retries = 3
+                    file_downloaded = False
+                    for attempt in range(1, max_retries + 1):
                         last_size = [0]
                         last_progress_time = [asyncio.get_event_loop().time()]
                         STALL_TIMEOUT = 300  # 5 phút không có bytes mới
@@ -1038,15 +1038,37 @@ async def main():
                                 elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
                                     raise asyncio.TimeoutError(f"Stalled 5min")
 
-                        wd_task = asyncio.ensure_future(watchdog())
+                        wd_task = asyncio.create_task(watchdog())
                         try:
                             await asyncio.wait_for(
                                 client.download_media(msg, file=str(save_path)),
                                 timeout=dl_timeout
                             )
+                            file_downloaded = True
+                            break
+                        except OSError as oe:
+                            if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
+                                log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {filename}, đợi 15s giải phóng RAM...", "WARN")
+                                await asyncio.sleep(15)
+                                continue
+                            log(f"  - ⚠️ Lỗi đĩa khi tải {filename} (Lần {attempt}/{max_retries}): {oe}", "WARN")
+                            await asyncio.sleep(5)
+                        except asyncio.TimeoutError as te:
+                            elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
+                            log(f"  - ⚠️ STALL/TIMEOUT sau {elapsed}s khi tải {filename} (Lần {attempt}/{max_retries})", "WARN")
+                            await asyncio.sleep(5)
+                        except Exception as e:
+                            log(f"  - ⚠️ Lỗi kết nối khi tải {filename} (Lần {attempt}/{max_retries}): {e}", "WARN")
+                            try:
+                                if not getattr(client, "is_connected", True):
+                                    await client.connect()
+                            except Exception:
+                                pass
+                            await asyncio.sleep(5)
                         finally:
                             wd_task.cancel()
 
+                    if file_downloaded:
                         log(f"  - ✔ Tải xong {filename}, ⚡ Giải nén trực tiếp...", "SUCCESS")
                         if not is_non_header_split_volume(filename):
                             if extract_single_archive(save_path, extracted_dir):
@@ -1062,19 +1084,6 @@ async def main():
                                         log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO")
                                     except Exception:
                                         pass
-                    except OSError as oe:
-                        if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
-                            log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {filename}, đợi 15s giải phóng RAM...", "WARN")
-                            await asyncio.sleep(15)
-                            # Thử tải lại sau khi RAM được giải phóng
-                            try:
-                                await asyncio.wait_for(client.download_media(msg, file=str(save_path)), timeout=dl_timeout)
-                                log(f"  - ✔ [TẢI LẠI THÀNH CÔNG] {filename}, ⚡ Giải nén...", "SUCCESS")
-                                if not is_non_header_split_volume(filename):
-                                    if extract_single_archive(save_path, extracted_dir):
-                                        try:
-                                            save_path.unlink()
-                                        except Exception:
                                             pass
                             except Exception as re_e:
                                 log(f"  - ✘ Thất bại khi tải lại {filename}: {re_e}", "ERROR")
