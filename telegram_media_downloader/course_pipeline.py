@@ -1084,19 +1084,8 @@ async def main():
                                         log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO")
                                     except Exception:
                                         pass
-                                            pass
-                            except Exception as re_e:
-                                log(f"  - ✘ Thất bại khi tải lại {filename}: {re_e}", "ERROR")
-                                download_success = False
-                        else:
-                            log(f"Thất bại khi xử lý {filename}: {oe}", "ERROR")
-                            download_success = False
-                    except asyncio.TimeoutError:
-                        elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
-                        log(f"  - ✘ STALL/TIMEOUT sau {elapsed}s khi tải {filename}, bỏ qua.", "ERROR")
-                        download_success = False
-                    except Exception as e:
-                        log(f"Thất bại khi xử lý {filename}: {e}", "ERROR")
+                    else:
+                        log(f"  - ✘ Thất bại 100% sau {max_retries} lần thử khi tải {filename}", "ERROR")
                         download_success = False
 
             tasks = [process_single_file(fn, m) for fn, m in files]
