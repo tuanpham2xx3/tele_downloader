@@ -136,10 +136,6 @@ def is_course_fully_completed(course_title: str) -> bool:
                 total_p = max(r.get("total_packs", 0) for r in streaming_records)
                 if total_p > 0 and max_batch >= total_p and any(r.get("status") == "UPLOADED_TO_DRIVE" for r in streaming_records):
                     return True
-                return False
-            for r in course_records:
-                if r.get("pack_name") == "Full Course Pack / All Sections" and r.get("status") == "UPLOADED_TO_DRIVE":
-                    return True
     except Exception:
         pass
     return False
