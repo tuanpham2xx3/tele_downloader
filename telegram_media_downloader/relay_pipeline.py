@@ -383,6 +383,12 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
     clean_t = normalize_title(course_title)
 
+    # 1. Kiểm tra trạng thái CSV (bỏ qua nếu Acc 1 đang làm hoặc đã COMPLETED)
+    st = load_csv_status().get(clean_t, "PENDING")
+    if st in ("PROCESSING_ACC1", "COMPLETED"):
+        log(f"[RELAY] ⏭ Khóa [{course_title}] (status={st}) đang được Acc 1 làm hoặc đã COMPLETED -> Bỏ qua!", "SUCCESS", log_path)
+        return
+
     # 2. Kiểm tra trực tiếp trên Google Drive qua Rclone (cả raw title & sanitized title)
     raw_remote_path = f"{rclone_parent.rstrip('/')}/{course_title.strip()}"
     sanitized_remote_path = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
