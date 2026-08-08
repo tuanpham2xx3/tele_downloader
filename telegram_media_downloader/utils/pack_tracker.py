@@ -1,6 +1,8 @@
 import os
 import json
 import csv
+import subprocess
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -48,6 +50,22 @@ def log_pack_upload(course_title: str, pack_name: str, batch_num: int, total_pac
             writer.writerow([timestamp, course_title, pack_name, f"Đợt {batch_num}/{total_packs}", round(size_mb, 1), status])
     except Exception as e:
         print(f"[PACK_TRACKER ERR] Ghi CSV thất bại: {e}")
+
+    # 3. Đồng bộ nhật ký lên Cloud Google Drive (_SYSTEM_METADATA/)
+    def sync_to_cloud():
+        rclone_dest = os.environ.get("RCLONE_PARENT_FOLDER", "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:")
+        remote_root = rclone_dest.rstrip('/')
+        try:
+            subprocess.run([
+                "rclone", "copyto", str(LOCAL_JSON_PATH), f"{remote_root}/_SYSTEM_METADATA/upload_pack_tracker.json"
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+            subprocess.run([
+                "rclone", "copyto", str(LOCAL_CSV_PATH), f"{remote_root}/_SYSTEM_METADATA/upload_pack_tracker.csv"
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        except Exception as e:
+            pass
+
+    threading.Thread(target=sync_to_cloud, daemon=True).start()
 
     print(f"[📦 PACK TRACKER] {timestamp} | {course_title} | {pack_name} (Đợt {batch_num}/{total_packs}) -> {status} ({size_mb:.1f} MB)")
 
