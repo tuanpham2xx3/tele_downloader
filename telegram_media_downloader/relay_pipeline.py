@@ -745,9 +745,6 @@ async def main():
                     except Exception:
                         pass
 
-                if csv_st == "COMPLETED":
-                    continue
-
                 await processing_queue.put((h_title, h_files))
                 queued_count += 1
 
