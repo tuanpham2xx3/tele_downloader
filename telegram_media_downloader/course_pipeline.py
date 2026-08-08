@@ -926,7 +926,7 @@ async def main():
                     update_csv_status(item[1], "COMPLETED")
                     continue
 
-                if st in ("FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+                if st in ("PROCESSING_ACC1", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
                     continue
 
                 return item
@@ -965,6 +965,7 @@ async def main():
                     idx, c_title, c_files = item
                     msg = f"🟢 [DISPATCHER] Acc 1 rảnh -> Giao khóa [{c_title}] vào Acc 1 Worker Queue"
                     log_dispatcher(msg, "INFO")
+                    update_csv_status(c_title, "PROCESSING_ACC1")
                     await acc1_queue.put(item)
                 acc1_dispatching = False
 
