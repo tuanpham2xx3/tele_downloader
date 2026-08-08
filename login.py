@@ -20,9 +20,8 @@ except ImportError:
     print("❌ Vui lòng cài telethon: pip install telethon")
     sys.exit(1)
 
-# Default Telegram App credentials (Official Android/Desktop app defaults)
-DEFAULT_API_ID   = 21724
-DEFAULT_API_HASH = "3e0fe5dadb9b1612e3e5b6d912b72449"
+DEFAULT_API_ID   = 26522513
+DEFAULT_API_HASH = "b9fcabdfdbac794eb84e4e93fbfa2fb6"
 
 PERSISTENT_SESS_DIR = Path.home() / ".telegram_sessions"
 PERSISTENT_SESS_DIR.mkdir(parents=True, exist_ok=True)

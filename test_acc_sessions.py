@@ -10,13 +10,13 @@ async def test_session(session_name):
         client = TelegramClient(f"telegram_media_downloader/{session_name}", API_ID, API_HASH)
         await client.connect()
         if not await client.is_user_authorized():
-            print(f"❌ ERROR: {session_name} -> NOT AUTHORIZED")
+            print(f"[FAIL] ERROR: {session_name} -> NOT AUTHORIZED")
         else:
             me = await client.get_me()
-            print(f"✔ SUCCESS: {session_name} -> User: {me.first_name} (ID: {me.id})")
+            print(f"[OK] SUCCESS: {session_name} -> User ID: {me.id}")
         await client.disconnect()
     except Exception as e:
-        print(f"❌ ERROR: {session_name} -> {type(e).__name__}: {e}")
+        print(f"[FAIL] ERROR: {session_name} -> {type(e).__name__}: {e}")
 
 async def main():
     await test_session("pyrogram")
@@ -25,4 +25,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
