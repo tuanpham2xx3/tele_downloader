@@ -858,12 +858,20 @@ async def main():
     # Quét danh sách Google Drive ban đầu
     get_all_remote_folders(rclone_parent, force_refresh=True)
 
+    def is_course_completely_done(c_title: str) -> bool:
+        if is_course_fully_completed and is_course_fully_completed(c_title):
+            return True
+        if check_rclone_folder_exists(rclone_parent, c_title):
+            if is_course_partially_in_progress and is_course_partially_in_progress(c_title):
+                return False
+            return True
+        return False
+
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
         clean_t = normalize_title(c_title)
-        # Chỉ bỏ qua khi khởi tạo nếu được xác nhận HOÀN THÀNH 100% ALL PACKS trong tracker
-        if is_course_fully_completed and is_course_fully_completed(c_title):
-            msg = f"⏭ [DISPATCHER] Khóa [{c_title}] đã TẢI HOÀN TẤT 100% ALL PACKS -> Note CSV = COMPLETED, không phân công."
+        if is_course_completely_done(c_title):
+            msg = f"⏭ [DISPATCHER] Khóa [{c_title}] đã TỒN TẠI ĐẦY ĐỦ trên Google Drive -> Note CSV = COMPLETED, không phân công."
             log_dispatcher(msg, "SUCCESS")
             update_csv_status(c_title, "COMPLETED")
             continue
@@ -890,9 +898,8 @@ async def main():
                 c_title = normalize_title(item[1])
                 st = load_csv_status().get(c_title, "PENDING")
 
-                # Khóa học CHỈ BỎ QUA nếu được xác nhận HOÀN THÀNH 100% ALL PACKS trong tracker
-                if is_course_fully_completed and is_course_fully_completed(item[1]):
-                    msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TẢI HOÀN TẤT 100% ALL PACKS -> Ghi CSV = COMPLETED & bỏ qua."
+                if is_course_completely_done(item[1]):
+                    msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TỒN TẠI ĐẦY ĐỦ trên Google Drive -> Ghi CSV = COMPLETED & bỏ qua."
                     log_dispatcher(msg, "SUCCESS")
                     update_csv_status(item[1], "COMPLETED")
                     continue
