@@ -174,7 +174,12 @@ try {
     )
 
     foreach ($launch in $launches) {
-        $stdout = Join-Path $runtimeDir "$($launch.Definition.Log).stdout.log"
+        if ($launch.Definition.Name -eq "acc1") {
+            $stdout = Join-Path $runtimeDir "$($launch.Definition.Log).stdout.log"
+        }
+        else {
+            $stdout = Join-Path $projectRoot "$($launch.Definition.Log).log"
+        }
         $stderr = Join-Path $runtimeDir "$($launch.Definition.Log).stderr.log"
         $process = Start-Process -FilePath $pythonPath -ArgumentList $launch.Arguments `
             -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
