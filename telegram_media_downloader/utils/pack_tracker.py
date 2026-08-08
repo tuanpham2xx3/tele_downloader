@@ -69,8 +69,27 @@ def log_pack_upload(course_title: str, pack_name: str, batch_num: int, total_pac
 
     print(f"[📦 PACK TRACKER] {timestamp} | {course_title} | {pack_name} (Đợt {batch_num}/{total_packs}) -> {status} ({size_mb:.1f} MB)")
 
+def ensure_local_tracker_restored():
+    """Nếu chưa có file upload_pack_tracker.json cục bộ, tự động kéo bản mới nhất từ Cloud Google Drive về."""
+    if LOCAL_JSON_PATH.exists() and LOCAL_JSON_PATH.stat().st_size > 10:
+        return
+    rclone_dest = os.environ.get("RCLONE_PARENT_FOLDER", "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:")
+    remote_root = rclone_dest.rstrip('/')
+    try:
+        res = subprocess.run([
+            "rclone", "copyto", f"{remote_root}/_SYSTEM_METADATA/upload_pack_tracker.json", str(LOCAL_JSON_PATH)
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+        if res.returncode == 0 and LOCAL_JSON_PATH.exists():
+            print(f"[📦 PACK TRACKER] ✔ Đã tự động kéo nhật ký mới nhất từ Google Drive (_SYSTEM_METADATA/) về Server!")
+        subprocess.run([
+            "rclone", "copyto", f"{remote_root}/_SYSTEM_METADATA/upload_pack_tracker.csv", str(LOCAL_CSV_PATH)
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    except Exception as e:
+        print(f"[PACK_TRACKER RESTORE ERR] {e}")
+
 def get_pack_tracker_summary():
     """Trả về dữ liệu tổng hợp đợt upload."""
+    ensure_local_tracker_restored()
     if not LOCAL_JSON_PATH.exists():
         return []
     try:
@@ -81,6 +100,7 @@ def get_pack_tracker_summary():
 
 def is_pack_already_uploaded(course_title: str, pack_name: str) -> bool:
     """Kiểm tra xem Pack này đã được Upload thành công lên Drive ở đợt trước chưa."""
+    ensure_local_tracker_restored()
     if not LOCAL_JSON_PATH.exists():
         return False
     try:
