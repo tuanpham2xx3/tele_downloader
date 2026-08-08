@@ -92,18 +92,17 @@ def clean_garbage(max_idle_minutes: int = 10):
             
             folder_name_lower = item.name.lower()
             
-            # Kiểm tra xem có thuộc khóa đang active không
-            is_active = any(act in folder_name_lower or folder_name_lower in act for act in active_courses)
+            # Kiểm tra xem thư mục có bị bỏ tĩnh > max_idle_minutes không
+            stale = is_folder_stale(item, max_idle_seconds=max_idle_minutes * 60)
             
-            # Nếu không active và mtime tĩnh hơn max_idle_minutes -> RÁC
-            if not is_active and is_folder_stale(item, max_idle_seconds=max_idle_minutes * 60):
+            if stale:
                 try:
                     # Tính dung lượng trước khi xóa
                     size = sum(f.stat().st_size for f in item.glob('**/*') if f.is_file())
                     shutil.rmtree(item, ignore_errors=True)
                     freed_bytes += size
                     deleted_count += 1
-                    print(f"[AUTO-CLEANER] 🗑️ Đã dọn dẹp thư mục rác: {item.name} ({size/1024/1024:.1f} MB)")
+                    print(f"[AUTO-CLEANER] 🗑️ Đã dọn dẹp thư mục rác (tĩnh >{max_idle_minutes}phút): {item.name} ({size/1024/1024:.1f} MB)")
                 except Exception as e:
                     print(f"[AUTO-CLEANER] ⚠️ Lỗi khi xóa {item.name}: {e}")
 
