@@ -9,6 +9,7 @@ from datetime import datetime
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 LOCAL_JSON_PATH = BASE_DIR / "upload_pack_tracker.json"
 LOCAL_CSV_PATH = BASE_DIR / "upload_pack_tracker.csv"
+_FILE_LOCK = threading.Lock()
 
 def log_pack_upload(course_title: str, pack_name: str, batch_num: int, total_packs: int, size_mb: float, status: str = "UPLOADED_TO_DRIVE"):
     """Ghi lại lịch sử đợt Upload từng Pack/Section vào file bền vững không reset tại máy local."""
@@ -24,32 +25,33 @@ def log_pack_upload(course_title: str, pack_name: str, batch_num: int, total_pac
         "status": status
     }
 
-    # 1. Ghi JSON
-    records = []
-    if LOCAL_JSON_PATH.exists():
+    with _FILE_LOCK:
+        # 1. Ghi JSON
+        records = []
+        if LOCAL_JSON_PATH.exists():
+            try:
+                with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
+                    records = json.load(f)
+            except Exception:
+                records = []
+        
+        records.append(entry)
         try:
-            with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
-                records = json.load(f)
-        except Exception:
-            records = []
-    
-    records.append(entry)
-    try:
-        with open(LOCAL_JSON_PATH, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[PACK_TRACKER ERR] Ghi JSON thất bại: {e}")
+            with open(LOCAL_JSON_PATH, "w", encoding="utf-8") as f:
+                json.dump(records, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[PACK_TRACKER ERR] Ghi JSON thất bại: {e}")
 
-    # 2. Ghi CSV
-    file_exists = LOCAL_CSV_PATH.exists()
-    try:
-        with open(LOCAL_CSV_PATH, "a", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(["Timestamp", "Course Title", "Pack Name", "Batch Info", "Size MB", "Status"])
-            writer.writerow([timestamp, course_title, pack_name, f"Đợt {batch_num}/{total_packs}", round(size_mb, 1), status])
-    except Exception as e:
-        print(f"[PACK_TRACKER ERR] Ghi CSV thất bại: {e}")
+        # 2. Ghi CSV
+        file_exists = LOCAL_CSV_PATH.exists()
+        try:
+            with open(LOCAL_CSV_PATH, "a", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(["Timestamp", "Course Title", "Pack Name", "Batch Info", "Size MB", "Status"])
+                writer.writerow([timestamp, course_title, pack_name, f"Đợt {batch_num}/{total_packs}", round(size_mb, 1), status])
+        except Exception as e:
+            print(f"[PACK_TRACKER ERR] Ghi CSV thất bại: {e}")
 
     # 3. Đồng bộ nhật ký lên Cloud Google Drive (_SYSTEM_METADATA/)
     def sync_to_cloud():
