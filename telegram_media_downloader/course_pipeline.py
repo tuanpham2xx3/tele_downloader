@@ -604,13 +604,12 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
     sanitized_folder = sanitize_name(course_title)
     target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized_folder}"
 
-    log(f"Đang tải lên Google Drive qua Rclone (16GB RAM BEAST MODE: 256M CHUNK, 256M BUFFER, 6 TRANSFERS): {target_remote_path}...", "INFO")
+    log(f"Uploading to Google Drive via Rclone (512M CHUNK, 32M BUFFER, 2 TRANSFERS): {target_remote_path}...", "INFO")
 
     cmd = [
         "rclone", "copy", str(upload_dir), target_remote_path,
         "--transfers", "2",
         "--checkers", "8",
-        "--drive-chunk-size", "256M",
         "--buffer-size", "32M",
         "--max-buffer-memory", "1536M",
         "--drive-chunk-size", "512M",
