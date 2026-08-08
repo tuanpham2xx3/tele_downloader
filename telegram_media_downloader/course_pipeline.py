@@ -859,13 +859,16 @@ async def main():
     get_all_remote_folders(rclone_parent, force_refresh=True)
 
     def is_course_completely_done(c_title: str) -> bool:
-        if is_course_fully_completed and is_course_fully_completed(c_title):
-            return True
-        if check_rclone_folder_exists(rclone_parent, c_title):
+        exists_on_drive = check_rclone_folder_exists(rclone_parent, c_title)
+        if exists_on_drive:
+            # Đã xuất hiện trên Drive: Phân loại dựa trên file log ở Drive (_SYSTEM_METADATA)
             if is_course_partially_in_progress and is_course_partially_in_progress(c_title):
-                return False
+                return False  # CÓ thông tin trong log và chưa hoàn thành (batch < total) -> CHƯA HOÀN THÀNH
+            # Không có thông tin trong log (khóa cũ) HOẶC đã tải đủ 100% -> KHÓA CŨ / ĐÃ XONG -> TÍNH HOÀN THÀNH RỒI!
             return True
-        return False
+        else:
+            # Chưa có trên Drive -> Khóa mới 100% -> CHƯA HOÀN THÀNH
+            return False
 
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
