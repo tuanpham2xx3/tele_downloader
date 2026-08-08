@@ -705,8 +705,26 @@ def get_all_remote_folders(rclone_parent: str, force_refresh: bool = False) -> s
 
 def check_rclone_folder_exists(rclone_parent: str, course_title: str, force_refresh: bool = False) -> bool:
     sanitized_folder = sanitize_name(course_title)
+    clean_t = normalize_title(course_title)
+    raw_t = course_title.strip()
+
     existing_folders = get_all_remote_folders(rclone_parent, force_refresh=force_refresh)
-    return sanitized_folder in existing_folders
+
+    # 1. So sánh trực tiếp tên gốc & tên sanitized
+    if raw_t in existing_folders or sanitized_folder in existing_folders:
+        return True
+
+    # 2. So sánh sau khi chuẩn hóa ký tự đặc biệt (&, _, space, case-insensitive)
+    normalized_remotes = {normalize_title(f): f for f in existing_folders}
+    if clean_t in normalized_remotes:
+        return True
+
+    # 3. So sánh mờ (Fuzzy matching - chứa chuỗi)
+    for norm_f in normalized_remotes.keys():
+        if clean_t and (clean_t in norm_f or norm_f in clean_t):
+            return True
+
+    return False
 
 
 async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 16) -> None:

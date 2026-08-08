@@ -383,18 +383,19 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
     clean_t = normalize_title(course_title)
 
-    # 2. Kiểm tra trực tiếp trên Google Drive qua Rclone
-    sanitized = sanitize_name(course_title)
-    target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized}"
-    try:
-        chk_cmd = ["rclone", "lsf", target_remote_path, "--max-depth", "1"]
-        cres = subprocess.run(chk_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
-        if cres.returncode == 0 and cres.stdout.strip():
-            log(f"[RELAY] ⏭ Khóa [{course_title}] đã TỒN TẠI trên Google Drive. Ghi CSV = COMPLETED & Bỏ qua!", "SUCCESS", log_path)
-            update_csv_status(course_title, "COMPLETED")
-            return
-    except Exception:
-        pass
+    # 2. Kiểm tra trực tiếp trên Google Drive qua Rclone (cả raw title & sanitized title)
+    raw_remote_path = f"{rclone_parent.rstrip('/')}/{course_title.strip()}"
+    sanitized_remote_path = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
+    for check_path in [raw_remote_path, sanitized_remote_path]:
+        try:
+            chk_cmd = ["rclone", "lsf", check_path, "--max-depth", "1"]
+            cres = subprocess.run(chk_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+            if cres.returncode == 0 and cres.stdout.strip():
+                log(f"[RELAY] ⏭ Khóa [{course_title}] đã TỒN TẠI trên Google Drive. Ghi CSV = COMPLETED & Bỏ qua!", "SUCCESS", log_path)
+                update_csv_status(course_title, "COMPLETED")
+                return
+        except Exception:
+            pass
 
     log(f"\n▶ [RELAY] Bắt đầu xử lý khóa: {course_title}", "SUCCESS", log_path)
 
