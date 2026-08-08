@@ -84,21 +84,24 @@ label{font-size:12px;color:#8b949e;cursor:pointer;display:flex;align-items:cente
   <div class="tab t3"        onclick="sw(2)">&#x1F7E0; Acc 3 (Relay)</div>
   <div class="tab t4"        onclick="sw(3)">&#x1F6F0;&#xFE0F; Dispatcher</div>
   <div class="tab csv"       onclick="sw(4)">&#x1F4CA; CSV Status</div>
+  <div class="tab csv" style="border-top:2px solid #a371f7" onclick="sw(5)">📦 Pack Tracker</div>
 </div>
 <div class="panel active" id="p0">Dang tai...</div>
 <div class="panel"        id="p1">Dang tai...</div>
 <div class="panel"        id="p2">Dang tai...</div>
 <div class="panel"        id="p3">Dang tai...</div>
 <div class="panel"        id="p4"><div id="csvWrap">Dang tai CSV...</div></div>
+<div class="panel"        id="p5"><div id="packWrap">Dang tai Pack Tracker...</div></div>
 
 <script>
 var cur=0;
-function colorize(t){return t.replace(/\\[SUCCESS\\]/g,'<span class="S">[SUCCESS]</span>').replace(/\\[ERROR\\]/g,'<span class="E">[ERROR]</span>').replace(/\\[WARN\\]/g,'<span class="W">[WARN]</span>').replace(/\\[INFO\\]/g,'<span class="I">[INFO]</span>');}
+function colorize(t){return t.replace(/\[SUCCESS\]/g,'<span class="S">[SUCCESS]</span>').replace(/\[ERROR\]/g,'<span class="E">[ERROR]</span>').replace(/\[WARN\]/g,'<span class="W">[WARN]</span>').replace(/\[INFO\]/g,'<span class="I">[INFO]</span>');}
 function sw(i){document.querySelectorAll('.tab').forEach(function(t,j){t.classList.toggle('active',i===j)});document.querySelectorAll('.panel').forEach(function(p,j){p.classList.toggle('active',i===j)});cur=i;}
 async function fp(url,pid){try{var r=await fetch(url);var t=await r.text();var p=document.getElementById(pid);p.innerHTML=colorize(t.replace(/</g,'&lt;').replace(/>/g,'&gt;'));if(document.getElementById('as').checked&&pid==='p'+cur)p.scrollTop=p.scrollHeight;}catch(e){}}
-async function fetchCSV(){try{var r=await fetch('/api/csv');var rows=await r.json();if(!rows.length){document.getElementById('csvWrap').textContent='(Chua co du lieu)';return;}var cols=Object.keys(rows[0]);var html='<table><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';rows.forEach(function(row){var st=(row.status||'').replace(/\\s/g,'_');html+='<tr>'+cols.map(function(c){return '<td class="'+(c==='status'?'st-'+st:'')+'">'+(row[c]||'')+'</td>';}).join('')+'</tr>';});html+='</table>';document.getElementById('csvWrap').innerHTML=html;}catch(e){}}
+async function fetchCSV(){try{var r=await fetch('/api/csv');var rows=await r.json();if(!rows.length){document.getElementById('csvWrap').textContent='(Chua co du lieu)';return;}var cols=Object.keys(rows[0]);var html='<table><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';rows.forEach(function(row){var st=(row.status||'').replace(/\s/g,'_');html+='<tr>'+cols.map(function(c){return '<td class="'+(c==='status'?'st-'+st:'')+'">'+(row[c]||'')+'</td>';}).join('')+'</tr>';});html+='</table>';document.getElementById('csvWrap').innerHTML=html;}catch(e){}}
+async function fetchPacks(){try{var r=await fetch('/api/pack_tracker');var rows=await r.json();if(!rows.length){document.getElementById('packWrap').textContent='(Chua co lich su dot Upload)';return;}var cols=Object.keys(rows[0]);var html='<table><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';rows.reverse().forEach(function(row){html+='<tr>'+cols.map(function(c){return '<td>'+(row[c]||'')+'</td>';}).join('')+'</tr>';});html+='</table>';document.getElementById('packWrap').innerHTML=html;}catch(e){}}
 function dl(url){var a=document.createElement('a');a.href=url;a.click();}
-function fetchAll(){fp('/api/logs/acc1','p0');fp('/api/logs/acc2','p1');fp('/api/logs/acc3','p2');fp('/api/logs/dispatcher','p3');fetchCSV();}
+function fetchAll(){fp('/api/logs/acc1','p0');fp('/api/logs/acc2','p1');fp('/api/logs/acc3','p2');fp('/api/logs/dispatcher','p3');fetchCSV();fetchPacks();}
 fetchAll();
 setInterval(fetchAll,2500);
 </script>
@@ -140,6 +143,16 @@ class Handler(BaseHTTPRequestHandler):
                     with open(CSV_PATH, "r", encoding="utf-8") as f:
                         for row in csv.DictReader(f, fieldnames=["title","status","updated"]):
                             rows.append(dict(row))
+                except Exception:
+                    pass
+            self.send_text(json.dumps(rows, ensure_ascii=False), "application/json; charset=utf-8")
+        elif p == "/api/pack_tracker":
+            json_p = BASE_DIR / "upload_pack_tracker.json"
+            rows = []
+            if json_p.exists():
+                try:
+                    with open(json_p, "r", encoding="utf-8") as f:
+                        rows = json.load(f)
                 except Exception:
                     pass
             self.send_text(json.dumps(rows, ensure_ascii=False), "application/json; charset=utf-8")

@@ -29,6 +29,14 @@ from typing import List, Dict, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 try:
+    from utils.pack_tracker import log_pack_upload
+except Exception:
+    try:
+        from telegram_media_downloader.utils.pack_tracker import log_pack_upload
+    except Exception:
+        log_pack_upload = None
+
+try:
     import yaml
 except ImportError:
     yaml = None
@@ -1011,6 +1019,11 @@ async def main():
             download_success = True
             file_semaphore = asyncio.Semaphore(max_concurrent)
 
+            header_files = [fn for fn, _ in files if not is_non_header_split_volume(fn)]
+            total_packs = max(len(header_files), 1)
+            batch_counter = [0]
+            pack_lock = asyncio.Lock()
+
             async def process_single_file(filename: str, msg: Any):
                 nonlocal download_success
                 save_path = archives_dir / filename
@@ -1084,6 +1097,28 @@ async def main():
                                         log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO")
                                     except Exception:
                                         pass
+
+                                # 🚀 STREAMING PER-PACK UPLOAD & LOGGING
+                                async with pack_lock:
+                                    batch_counter[0] += 1
+                                    log(f"  - 🚀 [STREAMING] Uploading Pack {batch_counter[0]}/{total_packs} ({filename})...", "INFO")
+                                    if repackage_extracted(course_dir, upload_dir):
+                                        pack_ok = rclone_upload(upload_dir, rclone_parent, course_title)
+                                        if pack_ok and log_pack_upload:
+                                            try:
+                                                log_pack_upload(course_title, filename, batch_counter[0], total_packs, size_mb)
+                                            except Exception as tracker_err:
+                                                log(f"⚠️ Pack Tracker Warning: {tracker_err}", "WARN")
+
+                                    # Xóa đĩa tức thì cho Pack này
+                                    for p_item in list(extracted_dir.glob("*")) + list(upload_dir.glob("*")):
+                                        try:
+                                            if p_item.is_file():
+                                                p_item.unlink()
+                                            elif p_item.is_dir():
+                                                shutil.rmtree(p_item, ignore_errors=True)
+                                        except Exception:
+                                            pass
                     else:
                         log(f"  - ✘ Thất bại 100% sau {max_retries} lần thử khi tải {filename}", "ERROR")
                         download_success = False

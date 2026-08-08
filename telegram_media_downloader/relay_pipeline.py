@@ -36,6 +36,14 @@ except ImportError:
 
 BASE_DIR = Path(__file__).parent
 
+try:
+    from utils.pack_tracker import log_pack_upload
+except Exception:
+    try:
+        from telegram_media_downloader.utils.pack_tracker import log_pack_upload
+    except Exception:
+        log_pack_upload = None
+
 # ─── RAM Disk tự động: ưu tiên /dev/shm (Linux RAM disk), fallback về đĩa ───
 _SHM_DIR = Path("/dev/shm")
 _PREFER_RAM = _SHM_DIR.exists() and _SHM_DIR.is_dir()
@@ -432,6 +440,11 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     sem = asyncio.Semaphore(max_dl)
     log(f"[RELAY] Tải {max_dl} file song song ({'RAM' if is_ram else 'Disk'})", "INFO", log_path)
 
+    header_msgs = [m for m in msgs if get_file_name(m) and get_file_name(m).lower().endswith(allowed_exts) and not is_non_header_split_volume(get_file_name(m))]
+    total_packs = max(len(header_msgs), 1)
+    batch_counter = [0]
+    pack_lock = asyncio.Lock()
+
     async def dl_file(msg: Any):
         nonlocal download_success
         fname = get_file_name(msg)
@@ -440,7 +453,6 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         save_path = archives_dir / fname
         file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
         size_mb = file_size / 1024 / 1024 if file_size else 0.0
-        # Timeout dựa theo tốc độ tối thiểu: 0.15MB/s, tối thiểu 30phút, tối đa 8h
         dl_timeout = min(max(int(size_mb / 0.15), 1800), 28800)
 
         async with sem:
@@ -509,6 +521,27 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                                 log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO", log_path)
                             except Exception:
                                 pass
+
+                        # 🚀 STREAMING PER-PACK UPLOAD & LOGGING
+                        async with pack_lock:
+                            batch_counter[0] += 1
+                            log(f"  - 🚀 [RELAY STREAMING] Uploading Pack {batch_counter[0]}/{total_packs} ({fname})...", "INFO", log_path)
+                            pack_ok = repackage_and_upload(course_dir, upload_dir, rclone_parent, course_title)
+                            if pack_ok and log_pack_upload:
+                                try:
+                                    log_pack_upload(course_title, fname, batch_counter[0], total_packs, size_mb)
+                                except Exception as tracker_err:
+                                    log(f"⚠️ Pack Tracker Warning: {tracker_err}", "WARN", log_path)
+                            
+                            # Xóa đĩa tức thì cho Pack này
+                            for p_item in list(extracted_dir.glob("*")) + list(upload_dir.glob("*")):
+                                try:
+                                    if p_item.is_file():
+                                        p_item.unlink()
+                                    elif p_item.is_dir():
+                                        shutil.rmtree(p_item, ignore_errors=True)
+                                except Exception:
+                                    pass
             else:
                 log(f"  - ✘ [RELAY] Thất bại 100% sau {max_retries} lần thử khi tải {fname}", "ERROR", log_path)
                 download_success = False
