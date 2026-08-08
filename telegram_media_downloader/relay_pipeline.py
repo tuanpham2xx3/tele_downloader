@@ -259,8 +259,8 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     log(f"Giải nén xong: {len(video_files)} video, {len(other_files)} file tài liệu khác.", "SUCCESS")
 
     if not video_files and not other_files:
-        log("Cảnh báo: Không tìm thấy file nào sau khi giải nén!", "WARN")
-        return False
+        log("Không có file mới cần đóng gói trong đợt này.", "INFO")
+        return True
 
     # 1. Di chuyển video ra thư mục upload
     for vid in video_files:

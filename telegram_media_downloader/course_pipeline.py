@@ -571,8 +571,8 @@ def repackage_extracted(course_dir: Path, upload_dir: Path) -> bool:
     log(f"Kết quả giải nén tổng hợp: {len(video_files)} video, {len(other_files)} file tài liệu khác.", "SUCCESS")
 
     if not video_files and not other_files:
-        log("Cảnh báo: Không tìm thấy file nào sau khi giải nén!", "WARN")
-        return False
+        log("Không có file mới cần đóng gói trong đợt này.", "INFO")
+        return True
 
     # 1. Di chuyển toàn bộ video ra thư mục upload
     for vid in video_files:
