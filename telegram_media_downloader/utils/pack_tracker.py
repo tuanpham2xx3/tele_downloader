@@ -82,7 +82,7 @@ def ensure_local_tracker_restored():
             "rclone", "copyto", f"{remote_root}/_SYSTEM_METADATA/upload_pack_tracker.json", str(LOCAL_JSON_PATH)
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
         if res.returncode == 0 and LOCAL_JSON_PATH.exists():
-            print(f"[📦 PACK TRACKER] ✔ Đã tự động kéo nhật ký mới nhất từ Google Drive (_SYSTEM_METADATA/) về Server!")
+            pass
         subprocess.run([
             "rclone", "copyto", f"{remote_root}/_SYSTEM_METADATA/upload_pack_tracker.csv", str(LOCAL_CSV_PATH)
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
