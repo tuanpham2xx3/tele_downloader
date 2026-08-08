@@ -130,12 +130,15 @@ def is_course_fully_completed(course_title: str) -> bool:
             records = json.load(f)
             c_lower = course_title.strip().lower()
             course_records = [r for r in records if r.get("course_title", "").strip().lower() == c_lower]
+            streaming_records = [r for r in course_records if r.get("pack_name") != "Full Course Pack / All Sections"]
+            if streaming_records:
+                max_batch = max(r.get("batch_num", 0) for r in streaming_records)
+                total_p = max(r.get("total_packs", 0) for r in streaming_records)
+                if total_p > 0 and max_batch >= total_p and any(r.get("status") == "UPLOADED_TO_DRIVE" for r in streaming_records):
+                    return True
+                return False
             for r in course_records:
                 if r.get("pack_name") == "Full Course Pack / All Sections" and r.get("status") == "UPLOADED_TO_DRIVE":
-                    return True
-                b_num = r.get("batch_num", 0)
-                t_packs = r.get("total_packs", 0)
-                if t_packs > 0 and b_num >= t_packs and r.get("status") == "UPLOADED_TO_DRIVE":
                     return True
     except Exception:
         pass
@@ -152,14 +155,18 @@ def is_course_partially_in_progress(course_title: str) -> bool:
             c_lower = course_title.strip().lower()
             course_records = [r for r in records if r.get("course_title", "").strip().lower() == c_lower]
             if not course_records:
-                return False  # Không có thông tin trong log -> Khóa cũ trên Drive đã đầy đủ!
-            max_batch = max(r.get("batch_num", 0) for r in course_records)
-            total_p = max(r.get("total_packs", 0) for r in course_records)
+                return False  # Không có trong log -> Nếu có trên Drive thì là khóa cũ đã xong!
+            streaming_records = [r for r in course_records if r.get("pack_name") != "Full Course Pack / All Sections"]
+            if streaming_records:
+                max_batch = max(r.get("batch_num", 0) for r in streaming_records)
+                total_p = max(r.get("total_packs", 0) for r in streaming_records)
+                if total_p > 0 and max_batch < total_p:
+                    return True   # Đang tải dở dang (ví dụ 1/8 Pack)!
+                if total_p > 0 and max_batch >= total_p:
+                    return False  # Đã xong đủ All Packs 100%!
             has_full = any(r.get("pack_name") == "Full Course Pack / All Sections" for r in course_records)
-            if has_full or (total_p > 0 and max_batch >= total_p):
-                return False  # Đã hoàn tất 100%
-            if total_p > 0 and max_batch < total_p:
-                return True   # Đang tải dở dang!
+            if has_full:
+                return False
     except Exception:
         pass
     return False
