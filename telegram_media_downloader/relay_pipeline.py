@@ -383,17 +383,6 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
     clean_t = normalize_title(course_title)
 
-    # 1. Kiểm tra trạng thái CSV
-    if CSV_PATH.exists():
-        try:
-            with open(CSV_PATH, "r", encoding="utf-8") as cf:
-                for row in csv.reader(cf):
-                    if row and normalize_title(row[0]) == clean_t and row[1].strip() == "COMPLETED":
-                        log(f"[RELAY] ⏭ Khóa [{course_title}] đã COMPLETED trong CSV. Bỏ qua không tải!", "SUCCESS", log_path)
-                        return
-        except Exception:
-            pass
-
     # 2. Kiểm tra trực tiếp trên Google Drive qua Rclone
     sanitized = sanitize_name(course_title)
     target_remote_path = f"{rclone_parent.rstrip('/')}/{sanitized}"

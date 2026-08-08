@@ -859,17 +859,11 @@ async def main():
     get_all_remote_folders(rclone_parent, force_refresh=True)
 
     def is_course_completely_done(c_title: str) -> bool:
-        clean_t = normalize_title(c_title)
-        st = load_csv_status().get(clean_t, "PENDING")
-        if st == "COMPLETED":
-            return True
+        """
+        LOGIC MỚI: Khóa học được coi là ĐÃ TỒN TẠI khi và chỉ khi XUẤT HIỆN TRÊN GOOGLE DRIVE.
+        Bỏ hoàn toàn các logic đoán mò từ file CSV/JSON cũ.
+        """
         if check_rclone_folder_exists(rclone_parent, c_title):
-            c_low = c_title.strip().lower()
-            if "drawing & coloring anime-style characters" in c_low or "mastering vtuber creation" in c_low:
-                update_csv_status(c_title, "COMPLETED")
-                return True
-            if is_course_partially_in_progress and is_course_partially_in_progress(c_title):
-                return False
             update_csv_status(c_title, "COMPLETED")
             return True
         return False
