@@ -890,23 +890,18 @@ async def main():
                 pool_idx += 1
                 c_title = normalize_title(item[1])
                 st = load_csv_status().get(c_title, "PENDING")
-                if is_course_partially_in_progress and is_course_partially_in_progress(item[1]):
-                    # Nếu đợt Pack xác nhận đang tải dở -> Gạt bỏ trạng thái COMPLETED lỗi trong CSV!
-                    st = "PENDING"
-                if st in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+
+                # Khóa học CHỈ BỎ QUA nếu được xác nhận HOÀN THÀNH 100% ALL PACKS trong tracker
+                if is_course_fully_completed and is_course_fully_completed(item[1]):
+                    msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TẢI HOÀN TẤT 100% ALL PACKS -> Ghi CSV = COMPLETED & bỏ qua."
+                    log(msg, "SUCCESS")
+                    log_dispatcher(msg, "SUCCESS")
+                    update_csv_status(item[1], "COMPLETED")
                     continue
-                # Kiểm tra trực tiếp trên Google Drive trước khi giao worker
-                if check_rclone_folder_exists(rclone_parent, item[1]):
-                    if is_course_partially_in_progress and is_course_partially_in_progress(item[1]):
-                        msg = f"⚡ [DISPATCHER] Khóa [{item[1]}] đang TẢI DỞ DANG trên Drive -> Tiếp tục phân công để tải nốt các Pack còn lại!"
-                        log(msg, "INFO")
-                        log_dispatcher(msg, "INFO")
-                    else:
-                        msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TỒN TẠI ĐẦY ĐỦ trên Google Drive -> Note CSV = COMPLETED & bỏ qua."
-                        log(msg, "SUCCESS")
-                        log_dispatcher(msg, "SUCCESS")
-                        update_csv_status(item[1], "COMPLETED")
-                        continue
+
+                if st in ("FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+                    continue
+
                 return item
             return None
 
