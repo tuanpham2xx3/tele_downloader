@@ -859,16 +859,9 @@ async def main():
     get_all_remote_folders(rclone_parent, force_refresh=True)
 
     def is_course_completely_done(c_title: str) -> bool:
-        exists_on_drive = check_rclone_folder_exists(rclone_parent, c_title)
-        if exists_on_drive:
-            # Đã xuất hiện trên Drive: Phân loại dựa trên file log ở Drive (_SYSTEM_METADATA)
-            if is_course_partially_in_progress and is_course_partially_in_progress(c_title):
-                return False  # CÓ thông tin trong log và chưa hoàn thành (batch < total) -> CHƯA HOÀN THÀNH
-            # Không có thông tin trong log (khóa cũ) HOẶC đã tải đủ 100% -> KHÓA CŨ / ĐÃ XONG -> TÍNH HOÀN THÀNH RỒI!
-            return True
-        else:
-            # Chưa có trên Drive -> Khóa mới 100% -> CHƯA HOÀN THÀNH
-            return False
+        clean_t = normalize_title(c_title)
+        st = load_csv_status().get(clean_t, "PENDING")
+        return st == "COMPLETED"
 
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
@@ -1036,8 +1029,8 @@ async def main():
             async def process_single_file(filename: str, msg: Any):
                 nonlocal download_success
                 save_path = archives_dir / filename
-                if is_pack_already_uploaded and is_pack_already_uploaded(course_title, filename):
-                    log(f"  - ⏩ [SKIP] Pack {filename} đã được upload thành công từ trước lên Google Drive, bỏ qua.", "SUCCESS")
+                if is_pack_already_uploaded and is_pack_already_uploaded(course_title, filename, rclone_parent):
+                    log(f"  - ⏩ [SKIP] Pack {filename} đã có sẵn trên Google Drive, bỏ qua.", "SUCCESS")
                     return
                 file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
                 size_mb = file_size / 1024 / 1024 if file_size else 0.0

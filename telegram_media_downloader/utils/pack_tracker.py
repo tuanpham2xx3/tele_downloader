@@ -100,24 +100,42 @@ def get_pack_tracker_summary():
     except Exception:
         return []
 
-def is_pack_already_uploaded(course_title: str, pack_name: str) -> bool:
+def is_pack_already_uploaded(course_title: str, pack_name: str, rclone_parent: Optional[str] = None) -> bool:
     """Kiểm tra xem Pack này đã được Upload thành công lên Drive ở đợt trước chưa."""
     ensure_local_tracker_restored()
-    if not LOCAL_JSON_PATH.exists():
-        return False
-    try:
-        with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
-            records = json.load(f)
-            c_lower = course_title.strip().lower()
-            p_lower = pack_name.strip().lower()
-            for r in records:
-                if r.get("course_title", "").strip().lower() == c_lower:
-                    if r.get("pack_name", "").strip().lower() == p_lower and r.get("status") == "UPLOADED_TO_DRIVE":
+    if LOCAL_JSON_PATH.exists():
+        try:
+            with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
+                records = json.load(f)
+                c_lower = course_title.strip().lower()
+                p_lower = pack_name.strip().lower()
+                for r in records:
+                    if r.get("course_title", "").strip().lower() == c_lower:
+                        if r.get("pack_name", "").strip().lower() == p_lower and r.get("status") == "UPLOADED_TO_DRIVE":
+                            return True
+        except Exception:
+            pass
+
+    if rclone_parent:
+        try:
+            clean_course = course_title.strip()
+            for ch in ['\\', '/', '*', '`', '~', '_', '?', ':', '"', '<', '>', '|']:
+                clean_course = clean_course.replace(ch, '')
+            clean_course = clean_course.strip().strip('.').strip('_')[:120]
+            target_remote = f"{rclone_parent.rstrip('/')}/{clean_course}"
+            cmd = ["rclone", "lsf", target_remote]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            if res.returncode == 0:
+                files_on_drive = [line.strip().rstrip('/') for line in res.stdout.splitlines() if line.strip()]
+                p_clean = pack_name.strip().lower()
+                p_stem = Path(pack_name).stem.strip().lower()
+                for f in files_on_drive:
+                    f_lower = f.strip().lower()
+                    if f_lower == p_clean or f_lower == p_stem or p_stem in f_lower or f_lower in p_stem:
                         return True
-                    if r.get("pack_name") == "Full Course Pack / All Sections" and r.get("status") == "UPLOADED_TO_DRIVE":
-                        return True
-    except Exception:
-        pass
+        except Exception:
+            pass
+
     return False
 
 def is_course_fully_completed(course_title: str) -> bool:
