@@ -141,5 +141,28 @@ def is_course_fully_completed(course_title: str) -> bool:
         pass
     return False
 
+def is_course_partially_in_progress(course_title: str) -> bool:
+    """Trả về True nếu khóa học này ĐANG TẢI DỞ DANG (đã upload một số pack nhưng chưa đủ all packs)."""
+    ensure_local_tracker_restored()
+    if not LOCAL_JSON_PATH.exists():
+        return False
+    try:
+        with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
+            records = json.load(f)
+            c_lower = course_title.strip().lower()
+            course_records = [r for r in records if r.get("course_title", "").strip().lower() == c_lower]
+            if not course_records:
+                return False  # Không có thông tin trong log -> Khóa cũ trên Drive đã đầy đủ!
+            max_batch = max(r.get("batch_num", 0) for r in course_records)
+            total_p = max(r.get("total_packs", 0) for r in course_records)
+            has_full = any(r.get("pack_name") == "Full Course Pack / All Sections" for r in course_records)
+            if has_full or (total_p > 0 and max_batch >= total_p):
+                return False  # Đã hoàn tất 100%
+            if total_p > 0 and max_batch < total_p:
+                return True   # Đang tải dở dang!
+    except Exception:
+        pass
+    return False
+
 if __name__ == "__main__":
     log_pack_upload("Test Course", "SECTION 01.zip", 1, 3, 450.5)
