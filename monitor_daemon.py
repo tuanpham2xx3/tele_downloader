@@ -30,9 +30,29 @@ def check_process_alive(cmd_pattern: str) -> bool:
     except Exception:
         return False
 
+def get_vps_metrics() -> str:
+    try:
+        # RAM stats
+        ram_res = subprocess.run(["free", "-h"], stdout=subprocess.PIPE, text=True).stdout
+        mem_line = [l for l in ram_res.splitlines() if "Mem:" in l]
+        ram_info = mem_line[0] if mem_line else ""
+
+        # RAM Disk /dev/shm stats
+        shm_res = subprocess.run(["df", "-h", "/dev/shm"], stdout=subprocess.PIPE, text=True).stdout
+        shm_line = shm_res.splitlines()[-1] if len(shm_res.splitlines()) > 1 else ""
+
+        # CPU load
+        with open("/proc/loadavg", "r") as f:
+            cpu_load = f.read().strip().split()[:3]
+        load_str = ", ".join(cpu_load)
+
+        return f"RAM: [{ram_info}] | /dev/shm: [{shm_line}] | CPU Load (1m,5m,15m): [{load_str}]"
+    except Exception as e:
+        return f"Metrics err: {e}"
+
 def monitor_loop():
-    log_monitor("🚀 Khởi chạy Bộ Giám Sát Daemon 10s/lần liên tục trên VPS...")
-    
+    log_monitor("🚀 Khởi chạy BỘ GIÁM SÁT VPS (TẦN SUẤT 30 GIÂY / LẦN 24/7)...")
+
     while True:
         try:
             # 1. Kiểm tra 4 tiến trình sống/chết
@@ -42,7 +62,9 @@ def monitor_loop():
             p_acc3 = check_process_alive("pyrogram_acc3")
 
             status_str = f"Web:{'RUNNING' if p_web else 'DEAD'} | Acc1:{'RUNNING' if p_acc1 else 'DEAD'} | Acc2:{'RUNNING' if p_acc2 else 'DEAD'} | Acc3:{'RUNNING' if p_acc3 else 'DEAD'}"
-            log_monitor(f"📊 Process Status: {status_str}")
+            vps_stats = get_vps_metrics()
+
+            log_monitor(f"📊 [30S STATS] Process: {status_str} || {vps_stats}")
 
             # 2. Tự động khắc phục nếu Acc 2 hoặc Acc 3 bị chết
             if not p_acc2:
@@ -56,7 +78,8 @@ def monitor_loop():
         except Exception as e:
             log_monitor(f"❌ Lỗi daemon monitor: {e}")
 
-        time.sleep(10)
+        time.sleep(30)
 
 if __name__ == "__main__":
     monitor_loop()
+
