@@ -437,9 +437,9 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
     download_success = True
     is_ram = _PREFER_RAM and str(course_dir).startswith(("/dev/shm", "/mnt/ramdisk"))
-    max_dl = 6 if is_ram else 3  # RAM Disk: 6 luồng song song siêu tốc, NVMe: 3 luồng
+    max_dl = 1  # ⚡ THUẬT TOÁN MỚI: Tải 1 File / Acc Bứt Tốc Cuốn Chiếu (Max 100% Băng Thông per File)
     sem = asyncio.Semaphore(max_dl)
-    log(f"[RELAY] Tải {max_dl} file song song ({'RAM Disk Siêu Tốc' if is_ram else 'Disk'})", "INFO", log_path)
+    log(f"[RELAY] Tải cuốn chiếu 1 file / Acc bứt tốc ({'RAM Disk Siêu Tốc' if is_ram else 'Disk'})", "INFO", log_path)
 
     header_msgs = [m for m in msgs if get_file_name(m) and get_file_name(m).lower().endswith(allowed_exts) and not is_non_header_split_volume(get_file_name(m))]
     total_packs = max(len(header_msgs), 1)

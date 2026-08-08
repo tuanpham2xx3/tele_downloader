@@ -1027,8 +1027,8 @@ async def main():
                 d.mkdir(parents=True, exist_ok=True)
 
             is_ram = str(course_dir).startswith(("/dev/shm", "/mnt/ramdisk"))
-            max_concurrent = 6 if is_ram else 3  # RAM Disk: 6 luồng song song siêu tốc, NVMe: 3 luồng
-            log(f"BƯỚC 3 & 4: Tải & Giải nén trực tiếp ({max_concurrent} file song song, {'RAM disk Siêu Tốc' if is_ram else 'đĩa thường'})...", "INFO")
+            max_concurrent = 1  # ⚡ THUẬT TOÁN MỚI: Tải 1 File / Acc Bứt Tốc Cuốn Chiếu (Max 100% Băng Thông per File)
+            log(f"BƯỚC 3 & 4: Tải & Giải nén trực tiếp (Cuốn chiếu 1 file / Acc bứt tốc, {'RAM disk Siêu Tốc' if is_ram else 'đĩa thường'})...", "INFO")
             download_success = True
             file_semaphore = asyncio.Semaphore(max_concurrent)
 
