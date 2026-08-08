@@ -79,5 +79,24 @@ def get_pack_tracker_summary():
     except Exception:
         return []
 
+def is_pack_already_uploaded(course_title: str, pack_name: str) -> bool:
+    """Kiểm tra xem Pack này đã được Upload thành công lên Drive ở đợt trước chưa."""
+    if not LOCAL_JSON_PATH.exists():
+        return False
+    try:
+        with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
+            records = json.load(f)
+            c_lower = course_title.strip().lower()
+            p_lower = pack_name.strip().lower()
+            for r in records:
+                if r.get("course_title", "").strip().lower() == c_lower:
+                    if r.get("pack_name", "").strip().lower() == p_lower and r.get("status") == "UPLOADED_TO_DRIVE":
+                        return True
+                    if r.get("pack_name") == "Full Course Pack / All Sections" and r.get("status") == "UPLOADED_TO_DRIVE":
+                        return True
+    except Exception:
+        pass
+    return False
+
 if __name__ == "__main__":
     log_pack_upload("Test Course", "SECTION 01.zip", 1, 3, 450.5)

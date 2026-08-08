@@ -37,12 +37,13 @@ except ImportError:
 BASE_DIR = Path(__file__).parent
 
 try:
-    from utils.pack_tracker import log_pack_upload
+    from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
 except Exception:
     try:
-        from telegram_media_downloader.utils.pack_tracker import log_pack_upload
+        from telegram_media_downloader.utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
     except Exception:
         log_pack_upload = None
+        is_pack_already_uploaded = None
 
 # ─── RAM Disk tự động: ưu tiên /dev/shm (Linux RAM disk), fallback về đĩa ───
 _SHM_DIR = Path("/dev/shm")
@@ -451,6 +452,9 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         if not fname or not fname.lower().endswith(allowed_exts):
             return
         save_path = archives_dir / fname
+        if is_pack_already_uploaded and is_pack_already_uploaded(course_title, fname):
+            log(f"  - ⏩ [RELAY SKIP] Pack {fname} đã được upload thành công từ trước lên Google Drive, bỏ qua.", "SUCCESS", log_path)
+            return
         file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
         size_mb = file_size / 1024 / 1024 if file_size else 0.0
         dl_timeout = min(max(int(size_mb / 0.15), 1800), 28800)

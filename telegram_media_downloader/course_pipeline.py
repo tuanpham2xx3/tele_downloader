@@ -29,12 +29,13 @@ from typing import List, Dict, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 try:
-    from utils.pack_tracker import log_pack_upload
+    from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
 except Exception:
     try:
-        from telegram_media_downloader.utils.pack_tracker import log_pack_upload
+        from telegram_media_downloader.utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
     except Exception:
         log_pack_upload = None
+        is_pack_already_uploaded = None
 
 try:
     import yaml
@@ -1027,6 +1028,9 @@ async def main():
             async def process_single_file(filename: str, msg: Any):
                 nonlocal download_success
                 save_path = archives_dir / filename
+                if is_pack_already_uploaded and is_pack_already_uploaded(course_title, filename):
+                    log(f"  - ⏩ [SKIP] Pack {filename} đã được upload thành công từ trước lên Google Drive, bỏ qua.", "SUCCESS")
+                    return
                 file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
                 size_mb = file_size / 1024 / 1024 if file_size else 0.0
                 dl_timeout = min(max(int(size_mb / 0.15), 1800), 28800)
