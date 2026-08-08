@@ -48,3 +48,13 @@ Tài liệu này quy định các nguyên tắc ứng xử, quy trình làm vi�
 
 - **Chứng minh bằng số liệu thực tế**: Mọi báo cáo tiến độ phải trích xuất log thực tế từ Server ONA (tên khóa học, kích thước MB/GB, số luồng active, RAM available).
 - **Không che giấu lỗi**: Nếu lệnh hoặc kết nối SSH bị ngắt, AI phải thông báo minh bạch cho USER và đưa ra phương án xử lý ngay.
+
+---
+
+## ⏱️ 6. QUY TẮC TỰ ĐỘNG CHECK LOG & GIÁM SÁT VPS KHI CHẠY PIPELINE
+
+- **Tự động quét log mỗi 10 giây**: AI phải trích xuất log thực tế của `pipeline_acc1.log`, `pipeline_acc2.log`, `pipeline_acc3.log` và `pipeline_dispatcher.log` khi chạy VPS.
+- **Đảm bảo 3 Account - 3 Khóa khác nhau**: Kiểm tra liên tục để chắc chắn không xảy ra trường hợp 2 Account tải trùng 1 khóa.
+- **Bỏ qua 100% khóa có trên Drive (`⏩ SKIP 0.1s`)**: Đảm bảo Dispatcher và Worker chỉ xử lý các khóa chưa tồn tại trên Google Drive.
+- **Tự động xử lý lỗi ngay lập tức**: Nếu phát hiện nghẽn mạng, lỗi đăng nhập, hoặc trùng lặp, AI phải lập tức sửa lỗi và báo cáo minh bạch cho USER.
+

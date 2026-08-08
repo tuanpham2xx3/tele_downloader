@@ -198,6 +198,13 @@ else
     tail -20 pipeline_acc3.log 2>/dev/null | while read l; do echo "  $l"; done
 fi
 
+# ── Khởi động Daemon Giám Sát Tự Động 10s/lần ───────────
+log_info "Khởi chạy Daemon Giám sát Tự động 10s/lần 24/7..."
+pkill -9 -f monitor_daemon.py 2>/dev/null || true
+nohup $PYTHON_BIN monitor_daemon.py >> monitor.log 2>&1 &
+MONITOR_PID=$!
+log_ok "Daemon 10s đang chạy 24/7 (PID=$MONITOR_PID) → monitor.log"
+
 # ── BƯỚC 6: Kiểm tra trạng thái cuối ─────────────────────
 log_section "TRẠNG THÁI HỆ THỐNG"
 
