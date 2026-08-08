@@ -653,7 +653,12 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
             line_str = line.strip()
             if line_str and ("Transferred:" in line_str or "ETA" in line_str):
                 log(f"[RClone] {line_str}", "INFO")
-        process.wait()
+        try:
+            process.wait(timeout=1800)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            log(f"⚠️ Timeout 30 phút khi Rclone Upload khóa {sanitized_folder}, đã kill tiến trình.", "WARN")
+            return False
 
         if process.returncode == 0:
             log(f"✔ Đã upload thành công khóa học lên Rclone: {sanitized_folder}", "SUCCESS")
