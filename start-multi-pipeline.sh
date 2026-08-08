@@ -156,7 +156,7 @@ nohup $CMD_PREFIX$PYTHON_BIN $PIPELINE_SCRIPT \
     --relay-acc3 "$RELAY_GROUP_ACC3" \
     >> pipeline_acc1.log 2>&1 &
 ACC1_PID=$!
-sleep 2
+sleep 3
 if kill -0 $ACC1_PID 2>/dev/null; then
     log_ok "Acc 1 đang chạy (PID=$ACC1_PID) → pipeline_acc1.log"
 else
@@ -166,6 +166,7 @@ fi
 
 # Acc 2 Relay
 log_info "Khởi chạy Acc 2 (Relay)..."
+sleep 3
 nohup $CMD_PREFIX$PYTHON_BIN $RELAY_SCRIPT \
     --session pyrogram_acc2 \
     --group "$RELAY_GROUP_ACC2" \
@@ -173,7 +174,7 @@ nohup $CMD_PREFIX$PYTHON_BIN $RELAY_SCRIPT \
     --port 5001 \
     >> pipeline_acc2.log 2>&1 &
 ACC2_PID=$!
-sleep 2
+sleep 3
 if kill -0 $ACC2_PID 2>/dev/null; then
     log_ok "Acc 2 đang chạy (PID=$ACC2_PID) → pipeline_acc2.log"
 else
@@ -183,6 +184,7 @@ fi
 
 # Acc 3 Relay
 log_info "Khởi chạy Acc 3 (Relay)..."
+sleep 3
 nohup $CMD_PREFIX$PYTHON_BIN $RELAY_SCRIPT \
     --session pyrogram_acc3 \
     --group "$RELAY_GROUP_ACC3" \
@@ -190,9 +192,10 @@ nohup $CMD_PREFIX$PYTHON_BIN $RELAY_SCRIPT \
     --port 5002 \
     >> pipeline_acc3.log 2>&1 &
 ACC3_PID=$!
-sleep 2
+sleep 3
 if kill -0 $ACC3_PID 2>/dev/null; then
     log_ok "Acc 3 đang chạy (PID=$ACC3_PID) → pipeline_acc3.log"
+
 else
     log_error "Acc 3 CRASH! Xem log:"
     tail -20 pipeline_acc3.log 2>/dev/null | while read l; do echo "  $l"; done
