@@ -175,8 +175,29 @@ class ReuseServer(HTTPServer):
     allow_reuse_address = True
 
 
+def background_cleanup_loop():
+    import time
+    try:
+        from telegram_media_downloader.utils.auto_cleaner import clean_garbage
+    except Exception as e:
+        clean_garbage = None
+        print(f"[AUTO-CLEANER INIT ERR] {e}", flush=True)
+
+    while True:
+        time.sleep(300)  # Tự động quét 5 phút 1 lần
+        if clean_garbage:
+            try:
+                clean_garbage(max_idle_minutes=10)
+            except Exception as e:
+                print(f"[AUTO-CLEANER ERR] {e}", flush=True)
+
+
 def main():
     import time
+    # Kích hoạt luồng ngầm tự động dọn rác đĩa 5 phút 1 lần
+    t_clean = threading.Thread(target=background_cleanup_loop, daemon=True)
+    t_clean.start()
+
     for attempt in range(10):
         try:
             server = ReuseServer(("0.0.0.0", PORT), Handler)
