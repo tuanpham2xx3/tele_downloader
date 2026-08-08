@@ -510,42 +510,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                     wd_task.cancel()
 
             if file_downloaded:
-                log(f"  - ✔ [RELAY] Tải xong {fname}, ⚡ Giải nén...", "SUCCESS", log_path)
-                if not is_non_header_split_volume(fname):
-                    if extract_single_archive(save_path, extracted_dir):
-                        try:
-                            save_path.unlink()
-                            log(f"  - 🗑️ Đã xóa file nén {fname} để thu hồi RAM Disk", "INFO", log_path)
-                        except Exception:
-                            pass
-                        base_stem = re.sub(r'\.(zip|rar|7z)$', '', save_path.name, flags=re.I)
-                        for sub_vol in save_path.parent.glob(f"{base_stem}.z*"):
-                            try:
-                                sub_vol.unlink()
-                                log(f"  - 🗑️ Đã xóa file nén phụ {sub_vol.name} để thu hồi RAM Disk", "INFO", log_path)
-                            except Exception:
-                                pass
-
-                        # 🚀 STREAMING PER-PACK UPLOAD & LOGGING
-                        async with pack_lock:
-                            batch_counter[0] += 1
-                            log(f"  - 🚀 [RELAY STREAMING] Uploading Pack {batch_counter[0]}/{total_packs} ({fname})...", "INFO", log_path)
-                            pack_ok = repackage_and_upload(course_dir, upload_dir, rclone_parent, course_title)
-                            if pack_ok and log_pack_upload:
-                                try:
-                                    log_pack_upload(course_title, fname, batch_counter[0], total_packs, size_mb)
-                                except Exception as tracker_err:
-                                    log(f"⚠️ Pack Tracker Warning: {tracker_err}", "WARN", log_path)
-                            
-                            # Xóa đĩa tức thì cho Pack này
-                            for p_item in list(extracted_dir.glob("*")) + list(upload_dir.glob("*")):
-                                try:
-                                    if p_item.is_file():
-                                        p_item.unlink()
-                                    elif p_item.is_dir():
-                                        shutil.rmtree(p_item, ignore_errors=True)
-                                except Exception:
-                                    pass
+                log(f"  - ✔ [RELAY] Tải xong file {fname} ({size_mb:.1f} MB)", "SUCCESS", log_path)
             else:
                 log(f"  - ✘ [RELAY] Thất bại 100% sau {max_retries} lần thử khi tải {fname}", "ERROR", log_path)
                 download_success = False
