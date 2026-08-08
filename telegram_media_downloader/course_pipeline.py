@@ -890,6 +890,9 @@ async def main():
                 pool_idx += 1
                 c_title = normalize_title(item[1])
                 st = load_csv_status().get(c_title, "PENDING")
+                if is_course_partially_in_progress and is_course_partially_in_progress(item[1]):
+                    # Nếu đợt Pack xác nhận đang tải dở -> Gạt bỏ trạng thái COMPLETED lỗi trong CSV!
+                    st = "PENDING"
                 if st in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
                     continue
                 # Kiểm tra trực tiếp trên Google Drive trước khi giao worker
