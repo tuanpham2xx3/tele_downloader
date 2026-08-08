@@ -152,6 +152,9 @@ def _read_log_tail(log_path: Path, max_lines: int = 500) -> str:
     return "(Chưa có log)"
 
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
 class WebLogHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         return  # Suppress default HTTP logging
