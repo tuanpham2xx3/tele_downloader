@@ -676,7 +676,6 @@ def get_all_remote_folders(rclone_parent: str, force_refresh: bool = False) -> s
     if not force_refresh and _remote_folders_cache is not None and (now - _remote_cache_time < 60):
         return _remote_folders_cache
 
-    log(f"🔍 [DISPATCHER] Quét danh sách thư mục Google Drive qua Rclone...", "INFO")
     log_dispatcher(f"🔍 [DISPATCHER] Quét danh sách thư mục Google Drive qua Rclone...", "INFO")
     cmd = ["rclone", "lsf", rclone_parent, "--dirs-only", "--max-depth", "1", "--fast-list"]
     try:
@@ -686,11 +685,10 @@ def get_all_remote_folders(rclone_parent: str, force_refresh: bool = False) -> s
             _remote_folders_cache = folders
             _remote_cache_time = now
             msg = f"✔ [DISPATCHER] Đã quét Google Drive! Tìm thấy {len(folders)} thư mục đã có sẵn trên Drive."
-            log(msg, "SUCCESS")
             log_dispatcher(msg, "SUCCESS")
             return _remote_folders_cache
     except Exception as e:
-        log(f"⚠️ Cảnh báo khi quét Rclone: {e}", "WARN")
+        log_dispatcher(f"⚠️ Cảnh báo khi quét Rclone: {e}", "WARN")
 
     if _remote_folders_cache is None:
         _remote_folders_cache = set()
@@ -861,13 +859,11 @@ async def main():
         # Chỉ bỏ qua khi khởi tạo nếu được xác nhận HOÀN THÀNH 100% ALL PACKS trong tracker
         if is_course_fully_completed and is_course_fully_completed(c_title):
             msg = f"⏭ [DISPATCHER] Khóa [{c_title}] đã TẢI HOÀN TẤT 100% ALL PACKS -> Note CSV = COMPLETED, không phân công."
-            log(msg, "SUCCESS")
             log_dispatcher(msg, "SUCCESS")
             update_csv_status(c_title, "COMPLETED")
             continue
         pending_pool.append((idx, c_title, c_files))
 
-    log(f"📋 Danh sách khóa học chờ phân công: {len(pending_pool)}/{len(courses_map)} khóa", "SUCCESS")
     log_dispatcher(f"📋 Danh sách khóa học chờ phân công: {len(pending_pool)}/{len(courses_map)} khóa", "SUCCESS")
 
     pool_idx = 0
@@ -892,7 +888,6 @@ async def main():
                 # Khóa học CHỈ BỎ QUA nếu được xác nhận HOÀN THÀNH 100% ALL PACKS trong tracker
                 if is_course_fully_completed and is_course_fully_completed(item[1]):
                     msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TẢI HOÀN TẤT 100% ALL PACKS -> Ghi CSV = COMPLETED & bỏ qua."
-                    log(msg, "SUCCESS")
                     log_dispatcher(msg, "SUCCESS")
                     update_csv_status(item[1], "COMPLETED")
                     continue
@@ -907,7 +902,6 @@ async def main():
     async def continuous_dispatcher():
         nonlocal acc2_current_course, acc3_current_course, acc1_dispatching
         log_msg = "🚀 [DISPATCHER] Khởi chạy Bộ Giám Sát & Điều Phối Liên Tục 3 Worker..."
-        log(log_msg, "SUCCESS")
         log_dispatcher(log_msg, "SUCCESS")
 
         while True:
@@ -918,7 +912,6 @@ async def main():
                 st2 = latest_csv.get(normalize_title(acc2_current_course), "FORWARDED_ACC2")
                 if st2 != "FORWARDED_ACC2":
                     msg = f"✔ [DISPATCHER] 🔵 Acc 2 đã xong [{acc2_current_course}] (status={st2})! Sẵn sàng nhận khóa tiếp theo."
-                    log(msg, "SUCCESS")
                     log_dispatcher(msg, "SUCCESS")
                     acc2_current_course = None
 
@@ -927,7 +920,6 @@ async def main():
                 st3 = latest_csv.get(normalize_title(acc3_current_course), "FORWARDED_ACC3")
                 if st3 != "FORWARDED_ACC3":
                     msg = f"✔ [DISPATCHER] 🟠 Acc 3 đã xong [{acc3_current_course}] (status={st3})! Sẵn sàng nhận khóa tiếp theo."
-                    log(msg, "SUCCESS")
                     log_dispatcher(msg, "SUCCESS")
                     acc3_current_course = None
 
@@ -938,7 +930,6 @@ async def main():
                 if item:
                     idx, c_title, c_files = item
                     msg = f"🟢 [DISPATCHER] Acc 1 rảnh -> Giao khóa [{c_title}] vào Acc 1 Worker Queue"
-                    log(msg, "INFO")
                     log_dispatcher(msg, "INFO")
                     await acc1_queue.put(item)
                 acc1_dispatching = False
@@ -950,7 +941,6 @@ async def main():
                     idx, c_title, c_files = item
                     clean_t = normalize_title(c_title)
                     msg = f"🔵 [DISPATCHER] Acc 2 rảnh -> Forward khóa [{clean_t}] ({len(c_files)} file) sang Group Acc 2 ({relay_acc2})..."
-                    log(msg, "INFO")
                     log_dispatcher(msg, "INFO")
                     fwd_ok = await forward_course_to_relay(client, relay_acc2, c_title, c_files)
                     if fwd_ok:
@@ -966,7 +956,6 @@ async def main():
                     idx, c_title, c_files = item
                     clean_t = normalize_title(c_title)
                     msg = f"🟠 [DISPATCHER] Acc 3 rảnh -> Forward khóa [{clean_t}] ({len(c_files)} file) sang Group Acc 3 ({relay_acc3})..."
-                    log(msg, "INFO")
                     log_dispatcher(msg, "INFO")
                     fwd_ok = await forward_course_to_relay(client, relay_acc3, c_title, c_files)
                     if fwd_ok:
@@ -978,7 +967,6 @@ async def main():
             # Kiểm tra xem toàn bộ danh sách đã hoàn thành chưa
             if pool_idx >= len(pending_pool) and acc1_queue.empty() and not acc1_is_busy and not acc2_current_course and not acc3_current_course:
                 done_msg = "🎉 [DISPATCHER] Toàn bộ các khóa học đã được phân công và xử lý hoàn tất!"
-                log(done_msg, "SUCCESS")
                 log_dispatcher(done_msg, "SUCCESS")
                 await acc1_queue.put(None)
                 break
