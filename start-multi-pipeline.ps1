@@ -13,6 +13,7 @@ $pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $pipelineScript = Join-Path $projectRoot "telegram_media_downloader\course_pipeline.py"
 $relayScript = Join-Path $projectRoot "telegram_media_downloader\relay_pipeline.py"
 $recoveryScript = Join-Path $projectRoot "telegram_media_downloader\recover_pipeline_state.py"
+$monitorScript = Join-Path $projectRoot "monitor_windows.py"
 $runtimeDir = Join-Path $projectRoot ".runtime"
 $statePath = Join-Path $runtimeDir "windows-pipelines.json"
 $credentialPath = Join-Path $projectRoot ".telerecon-credentials.xml"
@@ -95,7 +96,7 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Python virtual environment not found: $pythonPath"
 }
 
-foreach ($requiredFile in @($pipelineScript, $relayScript, $recoveryScript)) {
+foreach ($requiredFile in @($pipelineScript, $relayScript, $recoveryScript, $monitorScript)) {
     if (-not (Test-Path -LiteralPath $requiredFile)) {
         throw "Required script not found: $requiredFile"
     }
@@ -176,11 +177,15 @@ try {
         [pscustomobject]@{
             Definition = $definitions[2]
             Arguments = @("-u", $relayScript, "--session", "pyrogram_acc3", "--group", "$RelayGroupAcc3", "--rclone-dest", $RcloneDest, "--port", "5002")
+        },
+        [pscustomobject]@{
+            Definition = [pscustomobject]@{ Name = "monitor"; Script = $monitorScript; Port = 0; Log = "windows_monitor" }
+            Arguments = @("-u", $monitorScript)
         }
     )
 
     foreach ($launch in $launches) {
-        if ($launch.Definition.Name -eq "acc1") {
+        if ($launch.Definition.Name -in @("acc1", "monitor")) {
             $stdout = Join-Path $runtimeDir "$($launch.Definition.Log).stdout.log"
         }
         else {
