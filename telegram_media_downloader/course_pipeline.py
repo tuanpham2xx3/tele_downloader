@@ -727,15 +727,79 @@ def check_rclone_folder_exists(rclone_parent: str, course_title: str, force_refr
     return False
 
 
-async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 16) -> None:
-    """Tải siêu tốc với 512KB Part Size từ Telegram API (gấp 4 lần tốc độ mặc định)"""
-    if hasattr(msg, "media") and msg.media:
+async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 4) -> None:
+    """Tải siêu tốc 4 kết nối DC song song per file (Multi-Worker Parallel Streaming)"""
+    if not hasattr(msg, "media") or not msg.media:
+        await client.download_media(msg, file=str(save_path))
+        return
+
+    file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
+    if file_size < 10 * 1024 * 1024:
         try:
             await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
             return
         except Exception:
-            pass
-    await client.download_media(msg, file=str(save_path))
+            await client.download_media(msg, file=str(save_path))
+            return
+
+    try:
+        from telethon.tl.functions.upload import GetFileRequest
+        from telethon.tl.types import InputDocumentFileLocation
+
+        doc = getattr(msg.media, "document", None)
+        if not doc:
+            await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
+            return
+
+        file_location = InputDocumentFileLocation(
+            id=doc.id,
+            access_hash=doc.access_hash,
+            file_reference=doc.file_reference,
+            thumb_size=""
+        )
+
+        part_size = 512 * 1024
+        total_parts = math.ceil(file_size / part_size)
+
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, "wb") as f:
+            f.truncate(file_size)
+
+        queue = asyncio.Queue()
+        for i in range(total_parts):
+            queue.put_nowait(i)
+
+        async def worker_task():
+            while not queue.empty():
+                try:
+                    part_idx = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                offset = part_idx * part_size
+                limit = min(part_size, file_size - offset)
+                retries = 3
+                for _ in range(retries):
+                    try:
+                        res = await client(GetFileRequest(location=file_location, offset=offset, limit=limit))
+                        if res and res.bytes:
+                            with open(save_path, "r+b") as out_f:
+                                out_f.seek(offset)
+                                out_f.write(res.bytes)
+                            break
+                    except Exception:
+                        await asyncio.sleep(0.5)
+                else:
+                    queue.put_nowait(part_idx)
+                queue.task_done()
+
+        tasks = [asyncio.create_task(worker_task()) for _ in range(min(workers, 4))]
+        await asyncio.gather(*tasks)
+    except Exception:
+        try:
+            await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
+        except Exception:
+            await client.download_media(msg, file=str(save_path))
 
 
 # ==========================================

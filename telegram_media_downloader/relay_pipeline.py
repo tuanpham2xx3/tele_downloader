@@ -393,6 +393,73 @@ def update_csv_status(title: str, status: str):
         writer.writerows(rows)
 
 
+async def relay_fast_download(client: Any, msg: Any, save_path: Path) -> bool:
+    if not hasattr(msg, "media") or not msg.media:
+        return False
+    file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
+    if file_size < 10 * 1024 * 1024:
+        await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
+        return True
+
+    try:
+        from telethon.tl.functions.upload import GetFileRequest
+        from telethon.tl.types import InputDocumentFileLocation
+
+        doc = getattr(msg.media, "document", None)
+        if not doc:
+            await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
+            return True
+
+        file_location = InputDocumentFileLocation(
+            id=doc.id,
+            access_hash=doc.access_hash,
+            file_reference=doc.file_reference,
+            thumb_size=""
+        )
+
+        part_size = 512 * 1024
+        total_parts = math.ceil(file_size / part_size)
+
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, "wb") as f:
+            f.truncate(file_size)
+
+        queue = asyncio.Queue()
+        for i in range(total_parts):
+            queue.put_nowait(i)
+
+        async def worker_task():
+            while not queue.empty():
+                try:
+                    part_idx = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                offset = part_idx * part_size
+                limit = min(part_size, file_size - offset)
+                retries = 3
+                for _ in range(retries):
+                    try:
+                        res = await client(GetFileRequest(location=file_location, offset=offset, limit=limit))
+                        if res and res.bytes:
+                            with open(save_path, "r+b") as out_f:
+                                out_f.seek(offset)
+                                out_f.write(res.bytes)
+                            break
+                    except Exception:
+                        await asyncio.sleep(0.5)
+                else:
+                    queue.put_nowait(part_idx)
+                queue.task_done()
+
+        tasks = [asyncio.create_task(worker_task()) for _ in range(4)]
+        await asyncio.gather(*tasks)
+        return True
+    except Exception:
+        await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
+        return True
+
+
 async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                                 rclone_parent: str, log_path: Path):
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
@@ -495,7 +562,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                     if hasattr(msg, "media") and msg.media:
                         try:
                             await asyncio.wait_for(
-                                client.download_file(msg.media, file=str(save_path), part_size_kb=512),
+                                relay_fast_download(client, msg, save_path),
                                 timeout=dl_timeout
                             )
                             file_downloaded = True
