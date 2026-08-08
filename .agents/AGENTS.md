@@ -58,3 +58,11 @@ Tài liệu này quy định các nguyên tắc ứng xử, quy trình làm vi�
 - **Bỏ qua 100% khóa có trên Drive (`⏩ SKIP 0.1s`)**: Đảm bảo Dispatcher và Worker chỉ xử lý các khóa chưa tồn tại trên Google Drive.
 - **Tự động xử lý lỗi ngay lập tức**: Nếu phát hiện nghẽn mạng, lỗi đăng nhập, hoặc trùng lặp, AI phải lập tức sửa lỗi và báo cáo minh bạch cho USER.
 
+---
+
+## 🛑 7. QUY TẮC BẮT BỤC HỎI Ý KIẾN USER TRƯỚC KHI RESTART VPS / PIPELINE
+
+- **Tự ý Restart là VI PHẠM NGUYÊN TẮC**: AI tuyệt đối không được tự ý thực hiện lệnh restart VPS, reboot server, hoặc khởi chạy lại `./start-multi-pipeline.sh` mà chưa có sự đồng ý trực tiếp của USER.
+- **Quy trình xin phép**: AI phải trình bày lý do cần restart, các tác động dự kiến, và **chấp hành dừng lại chờ câu lệnh từ USER (VD: "đồng ý", "tiến hành", "ok")** mới được kích hoạt lệnh restart.
+
+
