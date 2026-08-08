@@ -101,7 +101,15 @@ def update_status(csv_path: Path, title: str, status: str, normalize: Normalize)
                 csv.writer(handle).writerows(rows)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary_name, csv_path)
+            replace_deadline = time.monotonic() + 5.0
+            while True:
+                try:
+                    os.replace(temporary_name, csv_path)
+                    break
+                except PermissionError:
+                    if time.monotonic() >= replace_deadline:
+                        raise
+                    time.sleep(0.05)
         except Exception:
             try:
                 os.unlink(temporary_name)

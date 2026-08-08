@@ -706,21 +706,14 @@ async def main():
             queued_count = 0
             seen_history = set()
             own_forwarded_status = f"FORWARDED_{'ACC2' if 'acc2' in sess_name.lower() else 'ACC3'}"
+            csv_statuses = load_csv_status()
             for h_title, h_files in history_courses:
                 clean_ht = normalize_title(h_title)
                 if clean_ht in seen_history:
                     continue
                 seen_history.add(clean_ht)
                 # Kiểm tra trạng thái trong CSV
-                csv_st = "PENDING"
-                if CSV_PATH.exists():
-                    try:
-                        with open(CSV_PATH, "r", encoding="utf-8") as cf:
-                            for row in csv.reader(cf):
-                                if row and normalize_title(row[0]) == clean_ht:
-                                    csv_st = row[1].strip() if len(row) > 1 else "PENDING"
-                    except Exception:
-                        pass
+                csv_st = csv_statuses.get(clean_ht, "PENDING")
 
                 if csv_st == "COMPLETED" or csv_st == "PROCESSING_ACC1":
                     continue
