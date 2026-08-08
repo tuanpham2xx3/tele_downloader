@@ -354,6 +354,21 @@ def normalize_title(title: str) -> str:
     return re.sub(r'[*`_]', '', title).strip()
 
 
+def load_csv_status() -> dict:
+    status_map = {}
+    if CSV_PATH.exists():
+        try:
+            with open(CSV_PATH, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) >= 2:
+                        clean_title = normalize_title(row[0])
+                        status_map[clean_title] = row[1].strip()
+        except Exception:
+            pass
+    return status_map
+
+
 def update_csv_status(title: str, status: str):
     clean_t = normalize_title(title)
     rows = []
