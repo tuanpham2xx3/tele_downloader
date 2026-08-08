@@ -120,5 +120,26 @@ def is_pack_already_uploaded(course_title: str, pack_name: str) -> bool:
         pass
     return False
 
+def is_course_fully_completed(course_title: str) -> bool:
+    """Kiểm tra xem khóa học đã TẢI HOÀN TẤT ALL PACKS trên Google Drive chưa."""
+    ensure_local_tracker_restored()
+    if not LOCAL_JSON_PATH.exists():
+        return False
+    try:
+        with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
+            records = json.load(f)
+            c_lower = course_title.strip().lower()
+            course_records = [r for r in records if r.get("course_title", "").strip().lower() == c_lower]
+            for r in course_records:
+                if r.get("pack_name") == "Full Course Pack / All Sections" and r.get("status") == "UPLOADED_TO_DRIVE":
+                    return True
+                b_num = r.get("batch_num", 0)
+                t_packs = r.get("total_packs", 0)
+                if t_packs > 0 and b_num >= t_packs and r.get("status") == "UPLOADED_TO_DRIVE":
+                    return True
+    except Exception:
+        pass
+    return False
+
 if __name__ == "__main__":
     log_pack_upload("Test Course", "SECTION 01.zip", 1, 3, 450.5)

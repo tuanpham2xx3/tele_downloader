@@ -29,13 +29,14 @@ from typing import List, Dict, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 try:
-    from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
+    from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded, is_course_fully_completed
 except Exception:
     try:
-        from telegram_media_downloader.utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
+        from telegram_media_downloader.utils.pack_tracker import log_pack_upload, is_pack_already_uploaded, is_course_fully_completed
     except Exception:
         log_pack_upload = None
         is_pack_already_uploaded = None
+        is_course_fully_completed = None
 
 try:
     import yaml
@@ -890,9 +891,9 @@ async def main():
                 st = load_csv_status().get(c_title, "PENDING")
                 if st in ("COMPLETED", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
                     continue
-                # Kiểm tra trực tiếp trên Google Drive trước khi giao worker
-                if check_rclone_folder_exists(rclone_parent, item[1]):
-                    msg = f"⏭ [DISPATCHER] Check Rclone: Khóa [{item[1]}] đã TỒN TẠI trên Google Drive -> Ghi CSV = COMPLETED & bỏ qua."
+                # Kiểm tra xem khóa học đã TẢI HOÀN TẤT ALL PACKS trên Google Drive chưa
+                if is_course_fully_completed and is_course_fully_completed(item[1]):
+                    msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TẢI HOÀN TẤT ALL PACKS trên Drive -> Ghi CSV = COMPLETED & bỏ qua."
                     log(msg, "SUCCESS")
                     log_dispatcher(msg, "SUCCESS")
                     update_csv_status(item[1], "COMPLETED")
