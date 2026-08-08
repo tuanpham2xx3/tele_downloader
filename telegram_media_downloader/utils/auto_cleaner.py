@@ -24,14 +24,20 @@ def get_active_course_names() -> set:
             continue
         try:
             with open(lf, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()[-200:]  # 200 dòng mới nhất
+                lines = f.readlines()[-300:]  # 300 dòng mới nhất
                 for line in lines:
                     # Pattern nhận diện khóa đang tải
-                    m = re.search(r'(?:Bắt đầu tải|Bắt đầu xử lý khóa:|Nhận khóa mới:|RELAY] Tải:)\s*\*?\*?([^\n\(\[\|]+)', line)
+                    m = re.search(r'(?:Bắt đầu tải|Bắt đầu xử lý khóa:|Nhận khóa mới:|RELAY\] Tải:|Khóa học:|Processing:)\s*\*?\*?([^\n\(\[\|]+)', line)
                     if m:
                         clean_name = m.group(1).strip().strip('*').strip()
                         if len(clean_name) > 3:
                             active_titles.add(clean_name.lower())
+                    # Pattern nhận diện từ tên file tải
+                    m_fn = re.search(r'\[(?:RELAY STREAMING|RELAY|STREAMING)\]\s*(?:Uploading Pack|Tải:)?\s*([^\n\(\[\|]+)', line)
+                    if m_fn:
+                        fn_name = m_fn.group(1).strip()
+                        if len(fn_name) > 3:
+                            active_titles.add(fn_name.lower())
         except Exception:
             pass
     return active_titles
