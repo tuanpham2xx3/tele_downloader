@@ -420,13 +420,13 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
     ram_dir, shm_free_gb = get_best_ram_dir()
     sess_label = log_path.stem if log_path else "relay"
-    needed = max(estimated_gb * 1.2, 3.5)
+    needed = 2.5  # Streaming Per-Pack chỉ cần 2.5GB RAM Disk cho 1 Pack tại 1 thời điểm
     if ram_dir and shm_free_gb >= needed:
         course_dir = ram_dir / f"pipeline_{sess_label}_temp" / sanitize_name(course_title)
-        log(f"[RAM Disk ⚡ 4 LUỒNG] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB / cần={needed:.1f}GB)", "SUCCESS", log_path)
+        log(f"[RAM Disk ⚡ 6 LUỒNG SIÊU TỐC] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB)", "SUCCESS", log_path)
     else:
         course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
-        log(f"[Disk 💾 NVMe] RAM Disk chỉ còn {shm_free_gb:.1f}GB (cần {needed:.1f}GB), dùng NVMe SSD cho [{course_title}]", "WARN", log_path)
+        log(f"[Disk 💾 NVMe] RAM Disk chỉ còn {shm_free_gb:.1f}GB, dùng NVMe SSD cho [{course_title}]", "WARN", log_path)
 
 
     archives_dir = course_dir / "archives"
@@ -436,10 +436,10 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         d.mkdir(parents=True, exist_ok=True)
 
     download_success = True
-    is_ram = _PREFER_RAM and str(course_dir).startswith("/dev/shm")
-    max_dl = 4 if is_ram else 2  # đĩa: 2 concurrent để tránh I/O bão hòa
+    is_ram = _PREFER_RAM and str(course_dir).startswith(("/dev/shm", "/mnt/ramdisk"))
+    max_dl = 6 if is_ram else 3  # RAM Disk: 6 luồng song song siêu tốc, NVMe: 3 luồng
     sem = asyncio.Semaphore(max_dl)
-    log(f"[RELAY] Tải {max_dl} file song song ({'RAM' if is_ram else 'Disk'})", "INFO", log_path)
+    log(f"[RELAY] Tải {max_dl} file song song ({'RAM Disk Siêu Tốc' if is_ram else 'Disk'})", "INFO", log_path)
 
     header_msgs = [m for m in msgs if get_file_name(m) and get_file_name(m).lower().endswith(allowed_exts) and not is_non_header_split_volume(get_file_name(m))]
     total_packs = max(len(header_msgs), 1)

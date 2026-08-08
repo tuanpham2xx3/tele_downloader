@@ -1003,9 +1003,12 @@ async def main():
                 getattr(m.file, "size", 0) / 1024 / 1024
                 for _, m in files if getattr(m, "file", None)
             )
-            estimated_gb = max(total_mb / 1024 * 2.5, 2.0)  # x2.5 vì giải nén thường lớn hơn rar
+            ram_p, ram_free = get_best_ram_dir() if 'get_best_ram_dir' in globals() else (Path("/dev/shm"), 10.0)
+            if ram_p and ram_free >= 2.5:
+                course_dir = ram_p / "pipeline_acc1_temp" / sanitize_name(course_title)
+            else:
+                course_dir = BASE_DIR / "temp_processing" / sanitize_name(course_title)
 
-            course_dir = get_temp_dir_for_course(course_title, estimated_gb)
             archives_dir = course_dir / "archives"
             upload_dir = course_dir / "upload"
             extracted_dir = course_dir / "extracted"
@@ -1013,10 +1016,9 @@ async def main():
             for d in [archives_dir, upload_dir, extracted_dir]:
                 d.mkdir(parents=True, exist_ok=True)
 
-            # Giảm concurrency khi dùng đĩa (tránh disk I/O bão hòa)
-            is_ram = bool(get_best_ram_dir()[0]) and str(course_dir).startswith(("/dev/shm", "/mnt/ramdisk"))
-            max_concurrent = 4 if is_ram else 2  # RAM: 4 song song, đĩa: 2 song song
-            log(f"BƯỚC 3 & 4: Tải & Giải nén trực tiếp ({max_concurrent} file song song, {'RAM disk' if is_ram else 'đĩa thường'})...", "INFO")
+            is_ram = str(course_dir).startswith(("/dev/shm", "/mnt/ramdisk"))
+            max_concurrent = 6 if is_ram else 3  # RAM Disk: 6 luồng song song siêu tốc, NVMe: 3 luồng
+            log(f"BƯỚC 3 & 4: Tải & Giải nén trực tiếp ({max_concurrent} file song song, {'RAM disk Siêu Tốc' if is_ram else 'đĩa thường'})...", "INFO")
             download_success = True
             file_semaphore = asyncio.Semaphore(max_concurrent)
 
