@@ -492,6 +492,17 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
                 wd_task = asyncio.ensure_future(watchdog())
                 try:
+                    if hasattr(msg, "media") and msg.media:
+                        try:
+                            await asyncio.wait_for(
+                                client.download_file(msg.media, file=str(save_path), part_size_kb=512),
+                                timeout=dl_timeout
+                            )
+                            file_downloaded = True
+                            break
+                        except Exception:
+                            pass
+
                     await asyncio.wait_for(
                         client.download_media(msg, file=str(save_path)),
                         timeout=dl_timeout
