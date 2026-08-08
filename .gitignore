@@ -3,6 +3,7 @@ Chrome_Telegram_Profile/
 
 # Local Python environment and encrypted Telegram credentials.
 .venv/
+.runtime/
 .telerecon-credentials.xml
 __pycache__/
 *.pyc
@@ -10,6 +11,8 @@ __pycache__/
 # User-generated URL exports and status CSV.
 telegram-get-files-*.txt
 *.log
+*.lock
 telegram_media_downloader/full_hoahoc.csv
+telegram_media_downloader/temp_*/
 *.session
 telegram_media_downloader/*.session

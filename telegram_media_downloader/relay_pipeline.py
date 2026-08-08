@@ -17,6 +17,7 @@ import os
 import sys
 import re
 import csv
+import math
 import shutil
 import asyncio
 import argparse
@@ -26,6 +27,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Any, Optional
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+from csv_status_store import load_status, update_status
 
 try:
     from telethon import TelegramClient, events
@@ -355,42 +358,11 @@ def normalize_title(title: str) -> str:
 
 
 def load_csv_status() -> dict:
-    status_map = {}
-    if CSV_PATH.exists():
-        try:
-            with open(CSV_PATH, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    if len(row) >= 2:
-                        clean_title = normalize_title(row[0])
-                        status_map[clean_title] = row[1].strip()
-        except Exception:
-            pass
-    return status_map
+    return load_status(CSV_PATH, normalize_title)
 
 
 def update_csv_status(title: str, status: str):
-    clean_t = normalize_title(title)
-    rows = []
-    found = False
-    if CSV_PATH.exists():
-        with open(CSV_PATH, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if not row:
-                    continue
-                if normalize_title(row[0]) == clean_t:
-                    rows.append([row[0].strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-                    found = True
-                else:
-                    rows.append(row)
-
-    if not found:
-        rows.append([clean_t, status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-
-    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(rows)
+    update_status(CSV_PATH, title, status, normalize_title)
 
 
 async def relay_fast_download(client: Any, msg: Any, save_path: Path) -> bool:
@@ -503,7 +475,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         course_dir = ram_dir / f"pipeline_{sess_label}_temp" / sanitize_name(course_title)
         log(f"[RAM Disk ⚡ 6 LUỒNG SIÊU TỐC] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB)", "SUCCESS", log_path)
     else:
-        course_dir = BASE_DIR / "temp_relay_disk" / sanitize_name(course_title)
+        course_dir = TEMP_DIR / sanitize_name(course_title)
         log(f"[Disk 💾 NVMe] RAM Disk chỉ còn {shm_free_gb:.1f}GB, dùng NVMe SSD cho [{course_title}]", "WARN", log_path)
 
 
@@ -786,8 +758,13 @@ async def main():
 
             # Đẩy các khóa chưa làm vào queue
             queued_count = 0
+            seen_history = set()
+            own_forwarded_status = f"FORWARDED_{'ACC2' if 'acc2' in sess_name.lower() else 'ACC3'}"
             for h_title, h_files in history_courses:
                 clean_ht = normalize_title(h_title)
+                if clean_ht in seen_history:
+                    continue
+                seen_history.add(clean_ht)
                 # Kiểm tra trạng thái trong CSV
                 csv_st = "PENDING"
                 if CSV_PATH.exists():
@@ -798,6 +775,11 @@ async def main():
                                     csv_st = row[1].strip() if len(row) > 1 else "PENDING"
                     except Exception:
                         pass
+
+                if csv_st == "COMPLETED" or csv_st == "PROCESSING_ACC1":
+                    continue
+                if csv_st.startswith("FORWARDED_") and csv_st != own_forwarded_status:
+                    continue
 
                 await processing_queue.put((h_title, h_files))
                 queued_count += 1

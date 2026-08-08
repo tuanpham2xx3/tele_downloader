@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+from csv_status_store import load_status, update_status
+
 try:
     from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded, is_course_fully_completed, is_course_partially_in_progress
 except Exception:
@@ -445,41 +447,11 @@ def get_file_name(msg) -> Optional[str]:
 # STEP 6: STATUS CSV MANAGEMENT
 # ==========================================
 def load_csv_status() -> Dict[str, str]:
-    status_map = {}
-    if not CSV_PATH.exists():
-        return status_map
-
-    with open(CSV_PATH, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if not row or len(row) < 2:
-                continue
-            status_map[normalize_title(row[0])] = row[1].strip()
-    return status_map
+    return load_status(CSV_PATH, normalize_title)
 
 
 def update_csv_status(title: str, status: str):
-    clean_t = normalize_title(title)
-    rows = []
-    found = False
-    if CSV_PATH.exists():
-        with open(CSV_PATH, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if not row:
-                    continue
-                if normalize_title(row[0]) == clean_t:
-                    rows.append([row[0].strip(), status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-                    found = True
-                else:
-                    rows.append(row)
-
-    if not found:
-        rows.append([clean_t, status, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-
-    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(rows)
+    update_status(CSV_PATH, title, status, normalize_title)
 
 
 import zipfile
