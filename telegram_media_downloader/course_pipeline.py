@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from csv_status_store import load_status, update_status
+from csv_status_store import claim_status, load_status, update_status
 
 try:
     from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded, is_course_fully_completed, is_course_partially_in_progress
@@ -954,22 +954,28 @@ async def main():
     acc2_current_course: Optional[str] = None
     acc3_current_course: Optional[str] = None
 
-    async def get_next_unprocessed_course() -> Optional[Tuple[int, str, List[Tuple[str, Any]]]]:
+    async def get_next_unprocessed_course(claim_to: str) -> Optional[Tuple[int, str, List[Tuple[str, Any]]]]:
         nonlocal pool_idx
         async with pool_lock:
             while pool_idx < len(pending_pool):
                 item = pending_pool[pool_idx]
                 pool_idx += 1
                 c_title = normalize_title(item[1])
-                st = load_csv_status().get(c_title, "PENDING")
-
                 if is_course_completely_done(item[1]):
                     msg = f"⏭ [DISPATCHER] Khóa [{item[1]}] đã TỒN TẠI ĐẦY ĐỦ trên Google Drive -> Ghi CSV = COMPLETED & bỏ qua."
                     log_dispatcher(msg, "SUCCESS")
                     update_csv_status(item[1], "COMPLETED")
                     continue
 
-                if st in ("PROCESSING_ACC1", "FORWARDED_ACC2", "FORWARDED_ACC3", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE"):
+                claimed, current = claim_status(
+                    CSV_PATH, item[1], claim_to,
+                    {"PENDING", "FAILED_FORWARD"}, normalize_title
+                )
+                if not claimed:
+                    log_dispatcher(
+                        f"[CLAIM] Skip [{c_title}] for {claim_to}, status={current}",
+                        "INFO"
+                    )
                     continue
 
                 return item
@@ -987,7 +993,7 @@ async def main():
             # 1. Giám sát trạng thái Acc 2
             if relay_acc2 and acc2_current_course:
                 st2 = latest_csv.get(normalize_title(acc2_current_course), "FORWARDED_ACC2")
-                if st2 != "FORWARDED_ACC2":
+                if st2 not in ("FORWARDED_ACC2", "PROCESSING_ACC2"):
                     msg = f"✔ [DISPATCHER] 🔵 Acc 2 đã xong [{acc2_current_course}] (status={st2})! Sẵn sàng nhận khóa tiếp theo."
                     log_dispatcher(msg, "SUCCESS")
                     acc2_current_course = None
@@ -995,7 +1001,7 @@ async def main():
             # 2. Giám sát trạng thái Acc 3
             if relay_acc3 and acc3_current_course:
                 st3 = latest_csv.get(normalize_title(acc3_current_course), "FORWARDED_ACC3")
-                if st3 != "FORWARDED_ACC3":
+                if st3 not in ("FORWARDED_ACC3", "PROCESSING_ACC3"):
                     msg = f"✔ [DISPATCHER] 🟠 Acc 3 đã xong [{acc3_current_course}] (status={st3})! Sẵn sàng nhận khóa tiếp theo."
                     log_dispatcher(msg, "SUCCESS")
                     acc3_current_course = None
@@ -1003,7 +1009,7 @@ async def main():
             # 3. Phân công cho Acc 1 chỉ khi THỰC SỰ rảnh (không busy, queue rỗng, và không đang dispatch)
             if not acc1_is_busy and acc1_queue.empty() and not acc1_dispatching:
                 acc1_dispatching = True
-                item = await get_next_unprocessed_course()
+                item = await get_next_unprocessed_course("PROCESSING_ACC1")
                 if item:
                     idx, c_title, c_files = item
                     msg = f"🟢 [DISPATCHER] Acc 1 rảnh -> Giao khóa [{c_title}] vào Acc 1 Worker Queue"
@@ -1014,7 +1020,7 @@ async def main():
 
             # 4. Phân công cho Acc 2 ngay khi Acc 2 rảnh
             if relay_acc2 and acc2_current_course is None:
-                item = await get_next_unprocessed_course()
+                item = await get_next_unprocessed_course("FORWARDED_ACC2")
                 if item:
                     idx, c_title, c_files = item
                     clean_t = normalize_title(c_title)
@@ -1022,14 +1028,13 @@ async def main():
                     log_dispatcher(msg, "INFO")
                     fwd_ok = await forward_course_to_relay(client, relay_acc2, c_title, c_files)
                     if fwd_ok:
-                        update_csv_status(c_title, "FORWARDED_ACC2")
                         acc2_current_course = clean_t
                     else:
                         update_csv_status(c_title, "FAILED_FORWARD")
 
             # 5. Phân công cho Acc 3 ngay khi Acc 3 rảnh
             if relay_acc3 and acc3_current_course is None:
-                item = await get_next_unprocessed_course()
+                item = await get_next_unprocessed_course("FORWARDED_ACC3")
                 if item:
                     idx, c_title, c_files = item
                     clean_t = normalize_title(c_title)
@@ -1037,7 +1042,6 @@ async def main():
                     log_dispatcher(msg, "INFO")
                     fwd_ok = await forward_course_to_relay(client, relay_acc3, c_title, c_files)
                     if fwd_ok:
-                        update_csv_status(c_title, "FORWARDED_ACC3")
                         acc3_current_course = clean_t
                     else:
                         update_csv_status(c_title, "FAILED_FORWARD")

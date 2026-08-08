@@ -12,6 +12,7 @@ $projectRoot = $PSScriptRoot
 $pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $pipelineScript = Join-Path $projectRoot "telegram_media_downloader\course_pipeline.py"
 $relayScript = Join-Path $projectRoot "telegram_media_downloader\relay_pipeline.py"
+$recoveryScript = Join-Path $projectRoot "telegram_media_downloader\recover_pipeline_state.py"
 $runtimeDir = Join-Path $projectRoot ".runtime"
 $statePath = Join-Path $runtimeDir "windows-pipelines.json"
 $credentialPath = Join-Path $projectRoot ".telerecon-credentials.xml"
@@ -94,7 +95,7 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Python virtual environment not found: $pythonPath"
 }
 
-foreach ($requiredFile in @($pipelineScript, $relayScript)) {
+foreach ($requiredFile in @($pipelineScript, $relayScript, $recoveryScript)) {
     if (-not (Test-Path -LiteralPath $requiredFile)) {
         throw "Required script not found: $requiredFile"
     }
@@ -117,6 +118,11 @@ foreach ($port in 5000..5003) {
     if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {
         throw "Port $port is already in use."
     }
+}
+
+& $pythonPath $recoveryScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to recover transient pipeline claims."
 }
 
 if (-not (Get-Command rclone -ErrorAction SilentlyContinue)) {

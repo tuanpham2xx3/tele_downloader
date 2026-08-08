@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Tuple, Any, Optional
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from csv_status_store import load_status, update_status
+from csv_status_store import claim_status, load_status, update_status
 
 try:
     from telethon import TelegramClient, events
@@ -395,13 +395,22 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     """Tải & upload toàn bộ file của 1 khóa học được forward vào relay group."""
     clean_t = normalize_title(course_title)
 
-    # 1. Kiểm tra trạng thái CSV (bỏ qua nếu Acc 1 đang làm hoặc đã COMPLETED)
-    st = load_csv_status().get(clean_t, "PENDING")
-    if st in ("PROCESSING_ACC1", "COMPLETED"):
-        log(f"[RELAY] ⏭ Khóa [{course_title}] (status={st}) đang được Acc 1 làm hoặc đã COMPLETED -> Bỏ qua!", "SUCCESS", log_path)
+    owner = "ACC2" if "acc2" in log_path.stem.lower() else "ACC3"
+    processing_status = f"PROCESSING_{owner}"
+    forwarded_status = f"FORWARDED_{owner}"
+    claimed, current = claim_status(
+        CSV_PATH, course_title, processing_status,
+        {
+            "PENDING", forwarded_status, processing_status,
+            "FAILED_FORWARD", "FAILED_DOWNLOAD", "FAILED_EXTRACT", "FAILED_RCLONE",
+        },
+        normalize_title,
+    )
+    if not claimed:
+        log(f"[CLAIM] {owner} skip [{course_title}], status={current}", "SUCCESS", log_path)
         return
 
-    # 2. Kiểm tra trực tiếp trên Google Drive qua Rclone (cả raw title & sanitized title)
+    # Check Google Drive directly after this relay owns the course.
     raw_remote_path = f"{rclone_parent.rstrip('/')}/{course_title.strip()}"
     sanitized_remote_path = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
     for check_path in [raw_remote_path, sanitized_remote_path]:
@@ -707,6 +716,7 @@ async def main():
             queued_count = 0
             seen_history = set()
             own_forwarded_status = f"FORWARDED_{'ACC2' if 'acc2' in sess_name.lower() else 'ACC3'}"
+            own_processing_status = f"PROCESSING_{'ACC2' if 'acc2' in sess_name.lower() else 'ACC3'}"
             csv_statuses = load_csv_status()
             for h_title, h_files in history_courses:
                 clean_ht = normalize_title(h_title)
@@ -719,6 +729,8 @@ async def main():
                 if csv_st == "COMPLETED" or csv_st == "PROCESSING_ACC1":
                     continue
                 if csv_st.startswith("FORWARDED_") and csv_st != own_forwarded_status:
+                    continue
+                if csv_st.startswith("PROCESSING_") and csv_st != own_processing_status:
                     continue
 
                 await processing_queue.put((h_title, h_files))
