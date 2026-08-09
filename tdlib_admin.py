@@ -35,6 +35,50 @@ class AdminError(RuntimeError):
     pass
 
 
+def load_runtime_env() -> Dict[str, str]:
+    values: Dict[str, str] = {}
+    try:
+        for raw in (RUNTIME / "tdlib.env").read_text(encoding="utf-8-sig").splitlines():
+            if raw.strip() and not raw.lstrip().startswith("#") and "=" in raw:
+                key, value = raw.split("=", 1)
+                values[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return values
+
+
+def authenticated_session(base_url: str) -> requests.Session:
+    session = requests.Session()
+    root = session.get(f"{base_url.rstrip('/')}/", timeout=10)
+    if root.status_code != 401:
+        root.raise_for_status()
+        return session
+    values = load_runtime_env()
+    username = os.environ.get("TDLIB_ADMIN_USERNAME") or values.get(
+        "TDLIB_ADMIN_USERNAME"
+    )
+    password = os.environ.get("TDLIB_ADMIN_PASSWORD") or values.get(
+        "TDLIB_ADMIN_PASSWORD"
+    )
+    if not username or not password:
+        session.close()
+        raise AdminError(
+            "telegram-files requires TDLIB_ADMIN_USERNAME/TDLIB_ADMIN_PASSWORD"
+        )
+    login = session.post(
+        f"{base_url.rstrip('/')}/auth/login",
+        json={"username": username, "password": password},
+        timeout=30,
+    )
+    login.raise_for_status()
+    return session
+
+
+def csrf_headers(session: requests.Session) -> Dict[str, str]:
+    token = session.cookies.get("tf_csrf")
+    return {"X-CSRF-Token": token} if token else {}
+
+
 def as_list(value: Any) -> List[dict]:
     if not value:
         return []
@@ -42,11 +86,15 @@ def as_list(value: Any) -> List[dict]:
 
 
 def authorized_accounts(base_url: str) -> List[dict]:
-    response = requests.get(
-        f"{base_url.rstrip('/')}/telegrams?authorized=true", timeout=10
-    )
-    response.raise_for_status()
-    return as_list(response.json())
+    session = authenticated_session(base_url)
+    try:
+        response = session.get(
+            f"{base_url.rstrip('/')}/telegrams?authorized=true", timeout=10
+        )
+        response.raise_for_status()
+        return as_list(response.json())
+    finally:
+        session.close()
 
 
 def write_registry(role: str, account: dict) -> None:
@@ -99,11 +147,12 @@ class LoginTransport:
     def __init__(self, base_url: str, account_id: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.account_id = account_id
-        self.http = requests.Session()
+        self.http = authenticated_session(self.base_url)
         self.buffer: List[dict] = []
-        self.http.get(f"{self.base_url}/", timeout=10).raise_for_status()
         self.http.post(
-            f"{self.base_url}/telegrams/change?telegramId={account_id}", timeout=10
+            f"{self.base_url}/telegrams/change?telegramId={account_id}",
+            headers=csrf_headers(self.http),
+            timeout=10,
         ).raise_for_status()
         cookie = "; ".join(f"{item.name}={item.value}" for item in self.http.cookies)
         parsed = urlparse(self.base_url)
@@ -123,7 +172,10 @@ class LoginTransport:
 
     def call(self, method: str, payload: Dict[str, Any]) -> Any:
         response = self.http.post(
-            f"{self.base_url}/telegram/api/{method}", json=payload, timeout=15
+            f"{self.base_url}/telegram/api/{method}",
+            json=payload,
+            headers=csrf_headers(self.http),
+            timeout=15,
         )
         response.raise_for_status()
         code = str(response.json()["code"])
@@ -164,10 +216,12 @@ class LoginTransport:
 
 def login(role: str, base_url: str) -> int:
     before = {int(item["id"]) for item in authorized_accounts(base_url)}
-    setup = requests.Session()
-    setup.get(f"{base_url}/", timeout=10).raise_for_status()
+    setup = authenticated_session(base_url)
     created = setup.post(
-        f"{base_url}/telegram/create", json={"proxyName": None}, timeout=20
+        f"{base_url}/telegram/create",
+        json={"proxyName": None},
+        headers=csrf_headers(setup),
+        timeout=20,
     )
     created.raise_for_status()
     temporary_id = str(created.json()["id"])
@@ -207,11 +261,13 @@ def login(role: str, base_url: str) -> int:
 def send_code(role: str, phone: str, base_url: str) -> int:
     """Start a resumable login without persisting the phone number."""
     before = [int(item["id"]) for item in authorized_accounts(base_url)]
-    setup = requests.Session()
+    setup = authenticated_session(base_url)
     try:
-        setup.get(f"{base_url}/", timeout=10).raise_for_status()
         created = setup.post(
-            f"{base_url}/telegram/create", json={"proxyName": None}, timeout=20
+            f"{base_url}/telegram/create",
+            json={"proxyName": None},
+            headers=csrf_headers(setup),
+            timeout=20,
         )
         created.raise_for_status()
         temporary_id = str(created.json()["id"])
@@ -338,7 +394,7 @@ def configured_data_root() -> Path:
 def migrate_root(base_url: str) -> int:
     """Rewrite imported absolute account paths after an OS/host migration."""
     try:
-        if requests.get(f"{base_url.rstrip('/')}/", timeout=2).ok:
+        if requests.get(f"{base_url.rstrip('/')}/health", timeout=2).ok:
             raise AdminError("Stop the TDLib backend before migrate-root")
     except requests.RequestException:
         pass
