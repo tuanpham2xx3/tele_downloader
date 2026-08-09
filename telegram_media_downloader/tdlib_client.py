@@ -485,16 +485,23 @@ class TdlibClient:
         # gateway to start the same completed download again.
         file_obj = await self.get_file(message.file.id)
         local = file_obj.get("local") or {}
-        if not local.get("isDownloadingCompleted"):
-            await self._request(
-                "POST",
-                f"/{self.account_id}/file/start-download",
-                json_body={
-                    "chatId": int(message.chat_id),
-                    "messageId": int(message.id),
-                    "fileId": int(message.file.id),
-                },
-            )
+        if not local.get("isDownloadingCompleted") and not local.get("isDownloadingActive"):
+            try:
+                await self._request(
+                    "POST",
+                    f"/{self.account_id}/file/start-download",
+                    json_body={
+                        "chatId": int(message.chat_id),
+                        "messageId": int(message.id),
+                        "fileId": int(message.file.id),
+                    },
+                )
+            except TdlibError as exc:
+                # The backend may restore an in-flight TDLib transfer between
+                # GetFile and start-download. In that case polling is exactly
+                # what we want, so the idempotency response is not an error.
+                if "file is downloading" not in str(exc).lower():
+                    raise
 
         started = time.monotonic()
         last_progress = started

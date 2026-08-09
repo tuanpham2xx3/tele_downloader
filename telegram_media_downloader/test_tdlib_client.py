@@ -176,6 +176,60 @@ class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
             client._request.assert_not_awaited()
             client.remove_file.assert_awaited_once_with(44)
 
+    async def test_resumes_active_tdlib_download_without_start_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "active.zip"
+            destination = root / "output" / "active.zip"
+            cached.write_bytes(b"resumed-content")
+            message = parse_message(
+                {
+                    "id": 124,
+                    "chatId": -1001,
+                    "date": 10,
+                    "content": {
+                        "document": {
+                            "fileName": "active.zip",
+                            "document": {
+                                "id": 45,
+                                "size": cached.stat().st_size,
+                                "remote": {},
+                            },
+                        }
+                    },
+                }
+            )
+            active = {
+                "id": 45,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingActive": True,
+                    "isDownloadingCompleted": False,
+                    "downloadedSize": 1,
+                    "path": "",
+                },
+            }
+            completed = {
+                "id": 45,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingActive": False,
+                    "isDownloadingCompleted": True,
+                    "downloadedSize": cached.stat().st_size,
+                    "path": str(cached),
+                },
+            }
+            client = TdlibClient(1)
+            client.get_file = AsyncMock(side_effect=[active, completed])
+            client._request = AsyncMock()
+            client.remove_file = AsyncMock()
+
+            result = await client.download_message(message, destination, timeout=10)
+
+            self.assertEqual(result.read_bytes(), b"resumed-content")
+            client._request.assert_not_awaited()
+            client.remove_file.assert_awaited_once_with(45)
+
 
 if __name__ == "__main__":
     unittest.main()
