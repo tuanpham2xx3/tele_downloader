@@ -61,16 +61,16 @@ def upload_job(job) -> tuple[bool, str]:
     command = [
         "rclone", "copy", str(upload_dir), remote,
         "--transfers", "2", "--checkers", "4",
-        "--buffer-size", "64M", "--drive-chunk-size", "64M",
-        "--tpslimit", "8", "--tpslimit-burst", "8",
-        "--timeout", "10m", "--contimeout", "30s",
-        "--retries", "3", "--low-level-retries", "10",
+        "--buffer-size", "16M", "--drive-chunk-size", "8M",
+        "--tpslimit", "4", "--tpslimit-burst", "4",
+        "--timeout", "2m", "--contimeout", "15s",
+        "--retries", "3", "--low-level-retries", "3",
         "--stats", "10s", "--stats-one-line-date", "--stats-log-level", "NOTICE",
     ]
     log(f"Uploading [{job.title}] -> {remote}")
     copied = run_rclone_with_watchdog(
         command, on_output=lambda line: log(line), on_warning=lambda line: log(line, "WARN"),
-        idle_timeout=180, max_attempts=3, retry_delay=30,
+        idle_timeout=60, max_attempts=3, retry_delay=15,
     )
     if not copied:
         return False, "rclone copy failed or made no byte progress for 30 minutes"

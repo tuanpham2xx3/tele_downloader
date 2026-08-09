@@ -16,6 +16,10 @@ _TRANSFERRED_RE = re.compile(
     r"Transferred:\s*([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?i?B)",
     re.IGNORECASE,
 )
+_ONE_LINE_TRANSFERRED_RE = re.compile(
+    r"\s-\s+([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?i?B)\s*/",
+    re.IGNORECASE,
+)
 _UNIT_FACTORS = {
     "B": 1,
     "KB": 1000,
@@ -35,7 +39,7 @@ _UNIT_FACTORS = {
 
 def parse_transferred_bytes(line: str) -> Optional[int]:
     """Return rclone's completed byte count from a stats line."""
-    match = _TRANSFERRED_RE.search(line)
+    match = _TRANSFERRED_RE.search(line) or _ONE_LINE_TRANSFERRED_RE.search(line)
     if not match:
         return None
     return int(float(match.group(1)) * _UNIT_FACTORS[match.group(2).upper()])

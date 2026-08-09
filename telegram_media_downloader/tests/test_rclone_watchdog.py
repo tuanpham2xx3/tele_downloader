@@ -18,6 +18,13 @@ class ParseTransferredBytesTests(unittest.TestCase):
     def test_parses_bytes(self):
         self.assertEqual(parse_transferred_bytes("Transferred: 933 B / 4 KiB"), 933)
 
+    def test_parses_one_line_date_stats(self):
+        line = (
+            "2026/08/09 11:10:18 NOTICE: 2026/08/09 11:10:18 - "
+            "1.248 GiB / 1.519 GiB, 82%, 19.028 MiB/s"
+        )
+        self.assertEqual(parse_transferred_bytes(line), int(1.248 * 1024**3))
+
     def test_ignores_non_stats_output(self):
         self.assertIsNone(parse_transferred_bytes("Checks: 14 / 14, 100%"))
 
