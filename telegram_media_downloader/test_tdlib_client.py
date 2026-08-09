@@ -133,6 +133,22 @@ class HistoryPaginationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_restart_file_download_cancels_then_resumes(self):
+        client = TdlibClient(1)
+        client.call = AsyncMock(side_effect=[{}, {}])
+        client._file_updates[48] = {"id": 48}
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await client.restart_file_download(48)
+
+        self.assertNotIn(48, client._file_updates)
+        self.assertEqual(
+            client.call.await_args_list[0].args,
+            ("CancelDownloadFile", {"fileId": 48, "onlyIfPending": False}),
+        )
+        self.assertEqual(client.call.await_args_list[1].args[0], "DownloadFile")
+        self.assertEqual(client.call.await_args_list[1].args[1]["priority"], 32)
+
     async def test_reuses_complete_destination_without_touching_tdlib(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "already-complete.zip"

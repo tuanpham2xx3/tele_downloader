@@ -1076,16 +1076,16 @@ async def main():
                             )
                             file_downloaded = True
                             break
+                        except asyncio.TimeoutError as te:
+                            elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
+                            log(f"  - ⚠️ STALL/TIMEOUT sau {elapsed}s khi tải {filename} (Lần {attempt}/{max_retries})", "WARN")
+                            await asyncio.sleep(5)
                         except OSError as oe:
                             if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
                                 log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {filename}, đợi 15s giải phóng RAM...", "WARN")
                                 await asyncio.sleep(15)
                                 continue
                             log(f"  - ⚠️ Lỗi đĩa khi tải {filename} (Lần {attempt}/{max_retries}): {oe}", "WARN")
-                            await asyncio.sleep(5)
-                        except asyncio.TimeoutError as te:
-                            elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
-                            log(f"  - ⚠️ STALL/TIMEOUT sau {elapsed}s khi tải {filename} (Lần {attempt}/{max_retries})", "WARN")
                             await asyncio.sleep(5)
                         except Exception as e:
                             log(f"  - ⚠️ Lỗi kết nối khi tải {filename} (Lần {attempt}/{max_retries}): {e}", "WARN")

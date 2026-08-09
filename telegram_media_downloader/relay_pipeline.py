@@ -558,16 +558,16 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                     )
                     file_downloaded = True
                     break
+                except asyncio.TimeoutError:
+                    elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
+                    log(f"  - ⚠️ [RELAY] STALL/TIMEOUT sau {elapsed}s khi tải {fname} (Lần {attempt}/{max_retries})", "WARN", log_path)
+                    await asyncio.sleep(5)
                 except OSError as oe:
                     if getattr(oe, 'errno', None) == 28 or "space" in str(oe).lower():
                         log(f"  - ⚠️ [RAM Disk] Tạm đầy bộ nhớ khi tải {fname}, đợi 15s giải phóng RAM...", "WARN", log_path)
                         await asyncio.sleep(15)
                         continue
                     log(f"  - ⚠️ [RELAY] Lỗi đĩa khi tải {fname} (Lần {attempt}/{max_retries}): {oe}", "WARN", log_path)
-                    await asyncio.sleep(5)
-                except asyncio.TimeoutError:
-                    elapsed = int(asyncio.get_event_loop().time() - last_progress_time[0])
-                    log(f"  - ⚠️ [RELAY] STALL/TIMEOUT sau {elapsed}s khi tải {fname} (Lần {attempt}/{max_retries})", "WARN", log_path)
                     await asyncio.sleep(5)
                 except Exception as e:
                     log(f"  - ⚠️ [RELAY] Lỗi kết nối khi tải {fname} (Lần {attempt}/{max_retries}): {e}", "WARN", log_path)

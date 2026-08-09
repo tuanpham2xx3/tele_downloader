@@ -463,6 +463,25 @@ class TdlibClient:
         )
         self._file_updates.pop(int(file_id), None)
 
+    async def restart_file_download(self, file_id: int) -> None:
+        """Reset a zombie TDLib transfer while preserving its partial bytes."""
+        await self.call(
+            "CancelDownloadFile",
+            {"fileId": int(file_id), "onlyIfPending": False},
+        )
+        self._file_updates.pop(int(file_id), None)
+        await asyncio.sleep(1)
+        await self.call(
+            "DownloadFile",
+            {
+                "fileId": int(file_id),
+                "priority": 32,
+                "offset": 0,
+                "limit": 0,
+                "synchronous": False,
+            },
+        )
+
     async def download_message(
         self,
         message: TdlibMessage,
@@ -513,6 +532,7 @@ class TdlibClient:
         started = time.monotonic()
         last_progress = started
         last_size = -1
+        stall_recoveries = 0
         local_path: Optional[Path] = None
         while True:
             now = time.monotonic()
@@ -531,8 +551,15 @@ class TdlibClient:
                 if progress:
                     progress(downloaded, total, downloaded / elapsed)
             elif now - last_progress > stall_timeout:
+                if stall_recoveries < 2:
+                    stall_recoveries += 1
+                    await self.restart_file_download(message.file.id)
+                    last_progress = time.monotonic()
+                    last_size = downloaded
+                    continue
                 raise asyncio.TimeoutError(
-                    f"TDLib download stalled for {int(stall_timeout)}s: {message.file.name}"
+                    f"TDLib download stalled for {int(stall_timeout)}s after "
+                    f"{stall_recoveries} automatic recoveries: {message.file.name}"
                 )
             if local.get("isDownloadingCompleted"):
                 local_path = Path(str(local.get("path") or ""))
