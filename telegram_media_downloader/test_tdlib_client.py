@@ -132,5 +132,50 @@ class HistoryPaginationTests(unittest.IsolatedAsyncioTestCase):
         }
 
 
+class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reuses_completed_tdlib_cache_without_starting_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "cached.zip"
+            destination = root / "output" / "cached.zip"
+            cached.write_bytes(b"cached-content")
+            message = parse_message(
+                {
+                    "id": 123,
+                    "chatId": -1001,
+                    "date": 10,
+                    "content": {
+                        "document": {
+                            "fileName": "cached.zip",
+                            "document": {
+                                "id": 44,
+                                "size": cached.stat().st_size,
+                                "remote": {},
+                            },
+                        }
+                    },
+                }
+            )
+            completed = {
+                "id": 44,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingCompleted": True,
+                    "downloadedSize": cached.stat().st_size,
+                    "path": str(cached),
+                },
+            }
+            client = TdlibClient(1)
+            client.get_file = AsyncMock(return_value=completed)
+            client._request = AsyncMock()
+            client.remove_file = AsyncMock()
+
+            result = await client.download_message(message, destination, timeout=10)
+
+            self.assertEqual(result.read_bytes(), b"cached-content")
+            client._request.assert_not_awaited()
+            client.remove_file.assert_awaited_once_with(44)
+
+
 if __name__ == "__main__":
     unittest.main()

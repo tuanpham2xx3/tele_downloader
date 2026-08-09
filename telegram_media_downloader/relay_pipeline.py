@@ -54,7 +54,8 @@ except Exception:
 _SHM_DIR = Path("/dev/shm")
 _PREFER_RAM = _SHM_DIR.exists() and _SHM_DIR.is_dir()
 _SHM_RELAY_NAME = "pipeline_relay_temp"
-TEMP_DIR = (_SHM_DIR / _SHM_RELAY_NAME) if _PREFER_RAM else (BASE_DIR / "temp_processing_relay")
+DISK_TEMP_DIR = BASE_DIR / "temp_processing_relay"
+TEMP_DIR = (_SHM_DIR / _SHM_RELAY_NAME) if _PREFER_RAM else DISK_TEMP_DIR
 
 def get_best_ram_dir() -> Tuple[Optional[Path], float]:
     """Tìm thư mục RAM Disk tốt nhất (/mnt/ramdisk hoặc /dev/shm)."""
@@ -472,7 +473,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         course_dir = ram_dir / f"pipeline_{sess_label}_temp" / sanitize_name(course_title)
         log(f"[RAM Disk ⚡ 6 LUỒNG SIÊU TỐC] Dùng {ram_dir} cho [{course_title}] (Free={shm_free_gb:.1f}GB)", "SUCCESS", log_path)
     else:
-        course_dir = TEMP_DIR / sanitize_name(course_title)
+        course_dir = DISK_TEMP_DIR / sanitize_name(course_title)
         log(f"[Disk 💾 NVMe] RAM Disk chỉ còn {shm_free_gb:.1f}GB, dùng NVMe SSD cho [{course_title}]", "WARN", log_path)
 
 
@@ -630,13 +631,14 @@ async def main():
     rclone_parent = args.rclone_dest or os.environ.get("RCLONE_PARENT_FOLDER") or "gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:"
 
     # Gán TEMP_DIR riêng theo session để tránh conflict giữa Acc 2 và Acc 3
-    global TEMP_DIR
+    global TEMP_DIR, DISK_TEMP_DIR
+    DISK_TEMP_DIR = BASE_DIR / f"temp_processing_{args.session}"
     if _PREFER_RAM:
         TEMP_DIR = _SHM_DIR / f"pipeline_{args.session}_temp"
         _stat = shutil.disk_usage(str(_SHM_DIR))
         log(f"[RAM Disk] Dùng /dev/shm cho {args.session} — Free: {_stat.free / 1024**3:.1f} GB → {TEMP_DIR}", "SUCCESS", log_path)
     else:
-        TEMP_DIR = BASE_DIR / f"temp_processing_{args.session}"
+        TEMP_DIR = DISK_TEMP_DIR
 
     start_web_log_server(args.port)
     log(f"🚀 Relay Pipeline khởi động | Session: {args.session} | Group: {args.group}", "SUCCESS", log_path)

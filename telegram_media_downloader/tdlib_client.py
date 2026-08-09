@@ -480,15 +480,21 @@ class TdlibClient:
         if destination.exists() and (not expected or destination.stat().st_size == expected):
             return destination
 
-        await self._request(
-            "POST",
-            f"/{self.account_id}/file/start-download",
-            json_body={
-                "chatId": int(message.chat_id),
-                "messageId": int(message.id),
-                "fileId": int(message.file.id),
-            },
-        )
+        # A previous materialization attempt may have failed after TDLib already
+        # completed the network download. Reuse that cache instead of asking the
+        # gateway to start the same completed download again.
+        file_obj = await self.get_file(message.file.id)
+        local = file_obj.get("local") or {}
+        if not local.get("isDownloadingCompleted"):
+            await self._request(
+                "POST",
+                f"/{self.account_id}/file/start-download",
+                json_body={
+                    "chatId": int(message.chat_id),
+                    "messageId": int(message.id),
+                    "fileId": int(message.file.id),
+                },
+            )
 
         started = time.monotonic()
         last_progress = started
