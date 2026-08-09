@@ -6,6 +6,12 @@ cd "$ROOT"
 RUNTIME="$ROOT/.runtime"
 PID_DIR="$RUNTIME/pids"
 STATE="$RUNTIME/pipeline-state.json"
+if [ -f "$RUNTIME/pipeline.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$RUNTIME/pipeline.env"
+    set +a
+fi
 ACTION="${1:-start}"
 RCLONE_DEST="${RCLONE_PARENT_FOLDER:-gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:}"
 UPLOAD_REMOTES="${GETURL_UPLOAD_REMOTES:-gdrive}"

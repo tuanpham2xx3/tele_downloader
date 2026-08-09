@@ -16,3 +16,6 @@ telegram_media_downloader/full_hoahoc.csv
 telegram_media_downloader/temp_*/
 *.session
 telegram_media_downloader/*.session
+
+# Google OAuth desktop credentials must never be committed.
+client_secret_*.apps.googleusercontent.com.json
