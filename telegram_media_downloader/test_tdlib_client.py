@@ -164,6 +164,19 @@ class AdminAuthenticationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mocked.call_count, 3)
 
+    async def test_reconnect_preserves_admin_cookies(self):
+        client = TdlibClient(1)
+        client._http.cookies.set("tf_admin", "admin-token")
+        client._http.cookies.set("tf_csrf", "csrf-token")
+        client.close = AsyncMock()
+        client.connect = AsyncMock()
+
+        await client.reconnect()
+
+        self.assertEqual(client._http.cookies.get("tf_admin"), "admin-token")
+        self.assertEqual(client._http.cookies.get("tf_csrf"), "csrf-token")
+        client.connect.assert_awaited_once()
+
 
 class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
     async def test_restart_file_download_cancels_then_resumes(self):
@@ -389,6 +402,56 @@ class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.read_bytes(), b"race-content")
             client._request.assert_awaited_once()
             client.remove_file.assert_awaited_once_with(46)
+
+    async def test_accepts_new_gateway_already_downloading_response(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "downloaded.zip"
+            cached.write_bytes(b"complete")
+            destination = root / "output" / "downloaded.zip"
+            message = parse_message(
+                {
+                    "id": 127,
+                    "chatId": -1001,
+                    "date": 10,
+                    "content": {
+                        "document": {
+                            "fileName": "downloaded.zip",
+                            "document": {
+                                "id": 49,
+                                "size": cached.stat().st_size,
+                                "remote": {},
+                            },
+                        }
+                    },
+                }
+            )
+            pending = {
+                "id": 49,
+                "size": cached.stat().st_size,
+                "local": {"isDownloadingActive": False, "isDownloadingCompleted": False},
+            }
+            completed = {
+                "id": 49,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingActive": False,
+                    "isDownloadingCompleted": True,
+                    "downloadedSize": cached.stat().st_size,
+                    "path": str(cached),
+                },
+            }
+            client = TdlibClient(1)
+            client.get_file = AsyncMock(side_effect=[pending, completed])
+            client._request = AsyncMock(
+                side_effect=TdlibError("File is already downloading or completed")
+            )
+            client.remove_file = AsyncMock()
+
+            result = await client.download_message(message, destination, timeout=10)
+
+            self.assertEqual(result.read_bytes(), b"complete")
+            client.remove_file.assert_awaited_once_with(49)
 
     async def test_cache_cleanup_failure_keeps_completed_destination(self):
         with tempfile.TemporaryDirectory() as directory:

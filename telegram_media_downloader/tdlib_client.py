@@ -285,8 +285,10 @@ class TdlibClient:
         await asyncio.to_thread(self._http.close)
 
     async def reconnect(self) -> None:
+        cookies = requests.utils.dict_from_cookiejar(self._http.cookies)
         await self.close()
         self._http = requests.Session()
+        self._http.cookies.update(cookies)
         self._early_results.clear()
         await self.connect()
 
@@ -592,6 +594,7 @@ class TdlibClient:
                     marker in error_text
                     for marker in (
                         "file is downloading",
+                        "file is already downloading or completed",
                         "file is already downloaded successfully",
                     )
                 ):
