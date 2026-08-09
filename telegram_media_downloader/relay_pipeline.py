@@ -398,7 +398,6 @@ async def relay_fast_download(
         return False
     expected_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_path.unlink(missing_ok=True)
 
     try:
         await client.download_message(
@@ -419,7 +418,15 @@ async def relay_fast_download(
             )
         return True
     except Exception:
-        save_path.unlink(missing_ok=True)
+        # Keep a complete destination across retries/restarts. TDLib writes to
+        # its own cache first, so an existing target is only invalid when its
+        # final size disagrees with the Telegram message metadata.
+        if (
+            save_path.exists()
+            and expected_size
+            and save_path.stat().st_size != expected_size
+        ):
+            save_path.unlink(missing_ok=True)
         raise
 
 
@@ -588,8 +595,12 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         download_success = False
 
     if not download_success:
-        log(f"[RELAY] ✘ Lỗi tải file cho khóa {course_title}. Bỏ qua.", "ERROR", log_path)
-        shutil.rmtree(str(course_dir), ignore_errors=True)
+        log(
+            f"[RELAY] ✘ Lỗi tải file cho khóa {course_title}. "
+            f"Giữ file đã hoàn chỉnh để resume: {course_dir}",
+            "ERROR",
+            log_path,
+        )
         update_csv_status(course_title, "FAILED_DOWNLOAD")
         return
 

@@ -133,6 +133,39 @@ class HistoryPaginationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reuses_complete_destination_without_touching_tdlib(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "already-complete.zip"
+            destination.write_bytes(b"complete-on-nvme")
+            message = parse_message(
+                {
+                    "id": 122,
+                    "chatId": -1001,
+                    "date": 10,
+                    "content": {
+                        "document": {
+                            "fileName": destination.name,
+                            "document": {
+                                "id": 43,
+                                "size": destination.stat().st_size,
+                                "remote": {},
+                            },
+                        }
+                    },
+                }
+            )
+            client = TdlibClient(1)
+            client.get_file = AsyncMock()
+            client._request = AsyncMock()
+            client.remove_file = AsyncMock()
+
+            result = await client.download_message(message, destination, timeout=10)
+
+            self.assertEqual(result.read_bytes(), b"complete-on-nvme")
+            client.get_file.assert_not_awaited()
+            client._request.assert_not_awaited()
+            client.remove_file.assert_not_awaited()
+
     async def test_reuses_completed_tdlib_cache_without_starting_download(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -229,6 +262,109 @@ class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.read_bytes(), b"resumed-content")
             client._request.assert_not_awaited()
             client.remove_file.assert_awaited_once_with(45)
+
+    async def test_handles_download_completing_during_start_race(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "raced.zip"
+            destination = root / "output" / "raced.zip"
+            cached.write_bytes(b"race-content")
+            message = parse_message(
+                {
+                    "id": 125,
+                    "chatId": -1001,
+                    "date": 10,
+                    "content": {
+                        "document": {
+                            "fileName": "raced.zip",
+                            "document": {
+                                "id": 46,
+                                "size": cached.stat().st_size,
+                                "remote": {},
+                            },
+                        }
+                    },
+                }
+            )
+            pending = {
+                "id": 46,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingActive": False,
+                    "isDownloadingCompleted": False,
+                    "downloadedSize": 0,
+                    "path": "",
+                },
+            }
+            completed = {
+                "id": 46,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingActive": False,
+                    "isDownloadingCompleted": True,
+                    "downloadedSize": cached.stat().st_size,
+                    "path": str(cached),
+                },
+            }
+            client = TdlibClient(1)
+            client.get_file = AsyncMock(side_effect=[pending, completed])
+            client._request = AsyncMock(
+                side_effect=TdlibError(
+                    'POST /1/file/start-download failed (500): '
+                    '{"error":"File is already downloaded successfully"}'
+                )
+            )
+            client.remove_file = AsyncMock()
+
+            result = await client.download_message(message, destination, timeout=10)
+
+            self.assertEqual(result.read_bytes(), b"race-content")
+            client._request.assert_awaited_once()
+            client.remove_file.assert_awaited_once_with(46)
+
+    async def test_cache_cleanup_failure_keeps_completed_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "cleanup.zip"
+            destination = root / "output" / "cleanup.zip"
+            cached.write_bytes(b"keep-destination")
+            message = parse_message(
+                {
+                    "id": 126,
+                    "chatId": -1001,
+                    "date": 10,
+                    "content": {
+                        "document": {
+                            "fileName": "cleanup.zip",
+                            "document": {
+                                "id": 47,
+                                "size": cached.stat().st_size,
+                                "remote": {},
+                            },
+                        }
+                    },
+                }
+            )
+            completed = {
+                "id": 47,
+                "size": cached.stat().st_size,
+                "local": {
+                    "isDownloadingCompleted": True,
+                    "downloadedSize": cached.stat().st_size,
+                    "path": str(cached),
+                },
+            }
+            client = TdlibClient(1)
+            client.get_file = AsyncMock(return_value=completed)
+            client._request = AsyncMock()
+            client.remove_file = AsyncMock(
+                side_effect=TdlibError("temporary cache cleanup failure")
+            )
+
+            result = await client.download_message(message, destination, timeout=10)
+
+            self.assertEqual(result.read_bytes(), b"keep-destination")
+            client.remove_file.assert_awaited_once_with(47)
 
 
 if __name__ == "__main__":

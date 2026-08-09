@@ -498,9 +498,16 @@ class TdlibClient:
                 )
             except TdlibError as exc:
                 # The backend may restore an in-flight TDLib transfer between
-                # GetFile and start-download. In that case polling is exactly
-                # what we want, so the idempotency response is not an error.
-                if "file is downloading" not in str(exc).lower():
+                # GetFile and start-download, or the transfer may complete in
+                # that window. Polling is correct for both idempotent replies.
+                error_text = str(exc).lower()
+                if not any(
+                    marker in error_text
+                    for marker in (
+                        "file is downloading",
+                        "file is already downloaded successfully",
+                    )
+                ):
                     raise
 
         started = time.monotonic()
@@ -546,5 +553,11 @@ class TdlibClient:
                 f"Size mismatch for {message.file.name}: "
                 f"{destination.stat().st_size if destination.exists() else 0}/{expected}"
             )
-        await self.remove_file(message.file.id)
+        # The destination is already complete at this point. Cache cleanup is
+        # best-effort: an HTTP failure while removing TDLib's cached link must
+        # not turn a valid local file into a failed download/retry cycle.
+        try:
+            await self.remove_file(message.file.id)
+        except Exception:
+            self._file_updates.pop(int(message.file.id), None)
         return destination

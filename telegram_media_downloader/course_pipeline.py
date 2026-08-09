@@ -1115,9 +1115,12 @@ async def main():
                 download_success = False
 
             if not download_success:
-                log(f"Khóa học {course_title} bị lỗi khi tải/giải nén file, dọn dẹp & chuyển sang khóa tiếp theo.", "ERROR")
+                log(
+                    f"Khóa học {course_title} bị lỗi khi tải file; "
+                    f"giữ file đã hoàn chỉnh để resume: {course_dir}",
+                    "ERROR",
+                )
                 update_csv_status(course_title, "FAILED_DOWNLOAD")
-                shutil.rmtree(str(course_dir), ignore_errors=True)
                 acc1_is_busy = False
                 acc1_queue.task_done()
                 continue
