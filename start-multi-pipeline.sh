@@ -51,12 +51,12 @@ stop_one() {
 
 if [ "$ACTION" = "status" ]; then
     "$PYTHON_BIN" tdlib_backend.py status || true
-    for name in acc1 acc2 acc3 monitor dashboard; do status_one "$name"; done
+    for name in acc1 acc2 acc3 monitor dashboard cloudflared; do status_one "$name"; done
     exit 0
 fi
 
 if [ "$ACTION" = "stop" ]; then
-    for name in dashboard monitor acc3 acc2 acc1; do stop_one "$name"; done
+    for name in cloudflared dashboard monitor acc3 acc2 acc1; do stop_one "$name"; done
     rm -f "$STATE"
     "$PYTHON_BIN" tdlib_backend.py stop
     echo "Native TDLib pipelines stopped."
@@ -147,6 +147,14 @@ WEB_PORT=8386 nohup "$PYTHON_BIN" -u webserver.py \
 DASHBOARD_PID=$!
 echo "$DASHBOARD_PID" > "$PID_DIR/dashboard.pid"
 
+CLOUDFLARE_CONFIG="${CLOUDFLARE_CONFIG:-$HOME/.cloudflared/geturl-ona.yml}"
+if command -v cloudflared >/dev/null 2>&1 && [ -f "$CLOUDFLARE_CONFIG" ]; then
+    nohup cloudflared tunnel --config "$CLOUDFLARE_CONFIG" run \
+        >> "$RUNTIME/cloudflared.log" 2>&1 < /dev/null &
+    CLOUDFLARED_PID=$!
+    echo "$CLOUDFLARED_PID" > "$PID_DIR/cloudflared.pid"
+fi
+
 sleep 5
 failed=0
 for name in acc1 acc2 acc3 monitor dashboard; do
@@ -156,6 +164,13 @@ for name in acc1 acc2 acc3 monitor dashboard; do
         failed=1
     fi
 done
+if [ -f "$PID_DIR/cloudflared.pid" ]; then
+    pid="$(cat "$PID_DIR/cloudflared.pid")"
+    if ! alive "$pid"; then
+        echo "cloudflared failed to start; check .runtime/cloudflared.log." >&2
+        failed=1
+    fi
+fi
 [ "$failed" -eq 0 ] || exit 1
 
 echo "Three TDLib accounts are running natively on Ubuntu."
