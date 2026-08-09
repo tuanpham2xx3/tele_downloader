@@ -51,12 +51,12 @@ stop_one() {
 
 if [ "$ACTION" = "status" ]; then
     "$PYTHON_BIN" tdlib_backend.py status || true
-    for name in acc1 acc2 acc3 monitor dashboard cloudflared; do status_one "$name"; done
+    for name in acc1 acc2 acc3 processor uploader monitor dashboard cloudflared; do status_one "$name"; done
     exit 0
 fi
 
 if [ "$ACTION" = "stop" ]; then
-    for name in cloudflared dashboard monitor acc3 acc2 acc1; do stop_one "$name"; done
+    for name in cloudflared dashboard monitor uploader processor acc3 acc2 acc1; do stop_one "$name"; done
     rm -f "$STATE"
     "$PYTHON_BIN" tdlib_backend.py stop
     echo "Native TDLib pipelines stopped."
@@ -68,7 +68,7 @@ if [ "$ACTION" != "start" ]; then
     exit 2
 fi
 
-for name in acc1 acc2 acc3 monitor dashboard; do
+for name in acc1 acc2 acc3 processor uploader monitor dashboard; do
     if [ -f "$PID_DIR/$name.pid" ] && alive "$(cat "$PID_DIR/$name.pid")"; then
         echo "$name is already running; use '$0 status' or '$0 stop'." >&2
         exit 2
@@ -103,6 +103,16 @@ done
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
 
+nohup "$PYTHON_BIN" -u telegram_media_downloader/processing_worker.py \
+    >> "$RUNTIME/processor.stdout.log" 2>> "$RUNTIME/processor.stderr.log" &
+PROCESSOR_PID=$!
+echo "$PROCESSOR_PID" > "$PID_DIR/processor.pid"
+
+nohup "$PYTHON_BIN" -u telegram_media_downloader/drive_uploader.py \
+    >> "$RUNTIME/uploader.stdout.log" 2>> "$RUNTIME/uploader.stderr.log" &
+UPLOADER_PID=$!
+echo "$UPLOADER_PID" > "$PID_DIR/uploader.pid"
+
 nohup "$PYTHON_BIN" -u telegram_media_downloader/course_pipeline.py \
     -r "$RCLONE_DEST" -p 5000 \
     --relay-acc2 "$RELAY_GROUP_ACC2" --relay-acc3 "$RELAY_GROUP_ACC3" \
@@ -124,7 +134,7 @@ nohup "$PYTHON_BIN" -u telegram_media_downloader/relay_pipeline.py \
 ACC3_PID=$!
 echo "$ACC3_PID" > "$PID_DIR/acc3.pid"
 
-export ACC1_PID ACC2_PID ACC3_PID STATE
+export ACC1_PID ACC2_PID ACC3_PID PROCESSOR_PID UPLOADER_PID STATE
 "$PYTHON_BIN" - <<'PY'
 import json, os, time
 from pathlib import Path
@@ -132,6 +142,8 @@ rows = [
     {'Name': 'acc1', 'Pid': int(os.environ['ACC1_PID']), 'Script': 'course_pipeline.py', 'Port': 5000},
     {'Name': 'acc2', 'Pid': int(os.environ['ACC2_PID']), 'Script': 'relay_pipeline.py', 'Port': 5001},
     {'Name': 'acc3', 'Pid': int(os.environ['ACC3_PID']), 'Script': 'relay_pipeline.py', 'Port': 5002},
+    {'Name': 'processor', 'Pid': int(os.environ['PROCESSOR_PID']), 'Script': 'processing_worker.py', 'Port': 0},
+    {'Name': 'uploader', 'Pid': int(os.environ['UPLOADER_PID']), 'Script': 'drive_uploader.py', 'Port': 0},
 ]
 for row in rows: row['StartedAt'] = time.time()
 Path(os.environ['STATE']).write_text(json.dumps(rows, indent=2), encoding='utf-8')
@@ -157,7 +169,7 @@ fi
 
 sleep 5
 failed=0
-for name in acc1 acc2 acc3 monitor dashboard; do
+for name in acc1 acc2 acc3 processor uploader monitor dashboard; do
     pid="$(cat "$PID_DIR/$name.pid")"
     if ! alive "$pid"; then
         echo "$name failed to start; check .runtime logs." >&2

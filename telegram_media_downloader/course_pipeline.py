@@ -29,6 +29,8 @@ from typing import List, Dict, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from csv_status_store import claim_status, load_status, update_status
+from upload_queue import UploadQueue, has_download_capacity, normalize_course_title
+from rclone_watchdog import remote_has_completion_marker
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -64,6 +66,16 @@ console = Console()
 BASE_DIR = Path(__file__).parent
 CSV_PATH = BASE_DIR / "full_hoahoc.csv"
 LOG_PATH = BASE_DIR / "pipeline.log"
+UPLOAD_QUEUE = UploadQueue()
+
+
+async def wait_for_download_capacity(storage_path: Path) -> None:
+    while True:
+        available, reason = has_download_capacity(UPLOAD_QUEUE, storage_path)
+        if available:
+            return
+        log(f"[BACKPRESSURE] Tam dung khoa moi: {reason}", "WARN")
+        await asyncio.sleep(30)
 
 def get_best_ram_dir() -> Tuple[Optional[Path], float]:
     """Tìm thư mục RAM Disk tốt nhất (/mnt/ramdisk hoặc /dev/shm)."""
@@ -385,10 +397,7 @@ def start_web_log_server(port: int = 5000):
 # HELPER FUNCTIONS & REGEX
 # ==========================================
 def normalize_title(title: str) -> str:
-    if not title:
-        return ""
-    clean = re.sub(r'[*`~_]', '', title).strip()
-    return clean
+    return normalize_course_title(title)
 
 
 def sanitize_name(name: str) -> str:
@@ -681,6 +690,9 @@ def get_all_remote_folders(rclone_parent: str, force_refresh: bool = False) -> s
 
 
 def check_rclone_folder_exists(rclone_parent: str, course_title: str, force_refresh: bool = False) -> bool:
+    target = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
+    return remote_has_completion_marker(target)
+
     sanitized_folder = sanitize_name(course_title)
     clean_t = normalize_title(course_title)
     raw_t = course_title.strip()
@@ -850,6 +862,8 @@ async def main():
         LOGIC MỚI: Khóa học được coi là ĐÃ TỒN TẠI khi và chỉ khi XUẤT HIỆN TRÊN GOOGLE DRIVE.
         Bỏ hoàn toàn các logic đoán mò từ file CSV/JSON cũ.
         """
+        if load_csv_status().get(normalize_title(c_title)) == "COMPLETED":
+            return True
         if check_rclone_folder_exists(rclone_parent, c_title):
             update_csv_status(c_title, "COMPLETED")
             return True
@@ -892,7 +906,11 @@ async def main():
 
                 claimed, current = claim_status(
                     CSV_PATH, item[1], claim_to,
-                    {"PENDING", "FAILED_FORWARD"}, normalize_title
+                    {
+                        "PENDING", "FAILED_FORWARD", "FAILED_DOWNLOAD",
+                        "FAILED_EXTRACT", "FAILED_RCLONE",
+                    },
+                    normalize_title,
                 )
                 if not claimed:
                     log_dispatcher(
@@ -989,6 +1007,7 @@ async def main():
 
             acc1_is_busy = True
             idx, course_title, files = item
+            await wait_for_download_capacity(BASE_DIR)
             log(f"\n==========================================", "INFO")
             log(f"▶ [Acc 1 Worker] XỬ LÝ KHÓA [{idx}/{len(courses_map)}]: {course_title}", "SUCCESS")
             log(f"Tổng số file đính kèm: {len(files)}", "INFO")
@@ -1124,6 +1143,19 @@ async def main():
                 acc1_is_busy = False
                 acc1_queue.task_done()
                 continue
+
+            UPLOAD_QUEUE.enqueue_downloaded(
+                title=course_title,
+                normalized_title=normalize_title(course_title),
+                owner="acc1",
+                course_dir=course_dir,
+                rclone_parent=rclone_parent,
+            )
+            update_csv_status(course_title, "DOWNLOADED_ACC1")
+            log(f"[Acc 1] Tai xong va da giao [{course_title}] cho processor.", "SUCCESS")
+            acc1_is_busy = False
+            acc1_queue.task_done()
+            continue
 
             for file_path in archives_dir.glob("*"):
                 if file_path.is_file() and file_path.suffix.lower() in [".rar", ".zip", ".7z"]:

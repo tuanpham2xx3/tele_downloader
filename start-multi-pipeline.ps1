@@ -12,6 +12,8 @@ $projectRoot = $PSScriptRoot
 $pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $pipelineScript = Join-Path $projectRoot "telegram_media_downloader\course_pipeline.py"
 $relayScript = Join-Path $projectRoot "telegram_media_downloader\relay_pipeline.py"
+$processorScript = Join-Path $projectRoot "telegram_media_downloader\processing_worker.py"
+$uploaderScript = Join-Path $projectRoot "telegram_media_downloader\drive_uploader.py"
 $recoveryScript = Join-Path $projectRoot "telegram_media_downloader\recover_pipeline_state.py"
 $monitorScript = Join-Path $projectRoot "monitor_windows.py"
 $backendManager = Join-Path $projectRoot "tdlib_backend.py"
@@ -25,6 +27,8 @@ $definitions = @(
     [pscustomobject]@{ Name = "acc1"; Script = $pipelineScript; Port = 5000; Log = "pipeline_acc1" },
     [pscustomobject]@{ Name = "acc2"; Script = $relayScript; Port = 5001; Log = "pipeline_acc2" },
     [pscustomobject]@{ Name = "acc3"; Script = $relayScript; Port = 5002; Log = "pipeline_acc3" }
+    [pscustomobject]@{ Name = "processor"; Script = $processorScript; Port = 0; Log = "processor" }
+    [pscustomobject]@{ Name = "uploader"; Script = $uploaderScript; Port = 0; Log = "uploader" }
 )
 
 function Get-SavedState {
@@ -52,8 +56,10 @@ function Show-Status {
     $rows = foreach ($definition in $definitions) {
         $entry = $saved | Where-Object Name -eq $definition.Name | Select-Object -First 1
         $process = if ($entry) { Get-ManagedProcess $entry } else { $null }
-        $listener = Get-NetTCPConnection -State Listen -LocalPort $definition.Port -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+        $listener = if ($definition.Port -gt 0) {
+            Get-NetTCPConnection -State Listen -LocalPort $definition.Port -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+        } else { $null }
         [pscustomobject]@{
             Account = $definition.Name
             Running = [bool]$process
@@ -103,7 +109,7 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Python virtual environment not found: $pythonPath"
 }
 
-foreach ($requiredFile in @($pipelineScript, $relayScript, $recoveryScript, $monitorScript, $backendManager)) {
+foreach ($requiredFile in @($pipelineScript, $relayScript, $processorScript, $uploaderScript, $recoveryScript, $monitorScript, $backendManager)) {
     if (-not (Test-Path -LiteralPath $requiredFile)) {
         throw "Required script not found: $requiredFile"
     }
@@ -193,17 +199,25 @@ try {
             Arguments = @("-u", $relayScript, "--session", "pyrogram_acc3", "--group", "$RelayGroupAcc3", "--rclone-dest", $RcloneDest, "--port", "5002")
         },
         [pscustomobject]@{
+            Definition = $definitions[3]
+            Arguments = @("-u", $processorScript)
+        },
+        [pscustomobject]@{
+            Definition = $definitions[4]
+            Arguments = @("-u", $uploaderScript)
+        },
+        [pscustomobject]@{
             Definition = [pscustomobject]@{ Name = "monitor"; Script = $monitorScript; Port = 0; Log = "windows_monitor" }
             Arguments = @("-u", $monitorScript)
         }
     )
 
     foreach ($launch in $launches) {
-        if ($launch.Definition.Name -in @("acc1", "monitor")) {
-            $stdout = Join-Path $runtimeDir "$($launch.Definition.Log).stdout.log"
+        if ($launch.Definition.Name -in @("acc2", "acc3")) {
+            $stdout = Join-Path $projectRoot "$($launch.Definition.Log).log"
         }
         else {
-            $stdout = Join-Path $projectRoot "$($launch.Definition.Log).log"
+            $stdout = Join-Path $runtimeDir "$($launch.Definition.Log).stdout.log"
         }
         $stderr = Join-Path $runtimeDir "$($launch.Definition.Log).stderr.log"
         $process = Start-Process -FilePath $pythonPath -ArgumentList $launch.Arguments `
@@ -219,7 +233,7 @@ try {
         Start-Sleep -Seconds 1
     }
 
-    $started | Where-Object Name -ne "monitor" | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
+    $started | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
     Start-Sleep -Seconds 5
 
     $dead = @($started | Where-Object { -not (Get-ManagedProcess $_) })

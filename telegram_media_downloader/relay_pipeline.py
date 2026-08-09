@@ -29,6 +29,8 @@ from typing import List, Tuple, Any, Optional
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from csv_status_store import claim_status, load_status, update_status
+from upload_queue import UploadQueue, has_download_capacity, normalize_course_title
+from rclone_watchdog import remote_has_completion_marker
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -40,6 +42,16 @@ except ImportError:
     sys.exit(1)
 
 BASE_DIR = Path(__file__).parent
+UPLOAD_QUEUE = UploadQueue()
+
+
+async def wait_for_download_capacity(storage_path: Path, log_path: Path) -> None:
+    while True:
+        available, reason = has_download_capacity(UPLOAD_QUEUE, storage_path)
+        if available:
+            return
+        log(f"[BACKPRESSURE] Tam dung khoa moi: {reason}", "WARN", log_path)
+        await asyncio.sleep(30)
 
 try:
     from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded
@@ -374,9 +386,7 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
 CSV_PATH = BASE_DIR / "full_hoahoc.csv"
 
 def normalize_title(title: str) -> str:
-    if not title:
-        return ""
-    return re.sub(r'[*`_]', '', title).strip()
+    return normalize_course_title(title)
 
 
 def load_csv_status() -> dict:
@@ -449,11 +459,16 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     if not claimed:
         log(f"[CLAIM] {owner} skip [{course_title}], status={current}", "SUCCESS", log_path)
         return
+    await wait_for_download_capacity(BASE_DIR, log_path)
 
     # Check Google Drive directly after this relay owns the course.
     raw_remote_path = f"{rclone_parent.rstrip('/')}/{course_title.strip()}"
     sanitized_remote_path = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
-    for check_path in [raw_remote_path, sanitized_remote_path]:
+    if remote_has_completion_marker(sanitized_remote_path):
+        log(f"[RELAY] Khoa [{course_title}] da co completion marker tren Drive.", "SUCCESS", log_path)
+        update_csv_status(course_title, "COMPLETED")
+        return
+    for check_path in []:
         try:
             chk_cmd = ["rclone", "lsf", check_path, "--max-depth", "1"]
             cres = subprocess.run(chk_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
@@ -603,6 +618,17 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
         )
         update_csv_status(course_title, "FAILED_DOWNLOAD")
         return
+
+    UPLOAD_QUEUE.enqueue_downloaded(
+        title=course_title,
+        normalized_title=normalize_title(course_title),
+        owner=owner.lower(),
+        course_dir=course_dir,
+        rclone_parent=rclone_parent,
+    )
+    update_csv_status(course_title, f"DOWNLOADED_{owner}")
+    log(f"[RELAY] Tai xong va da giao [{course_title}] cho processor.", "SUCCESS", log_path)
+    return
 
     for file_path in archives_dir.glob("*"):
         if file_path.is_file() and file_path.suffix.lower() in [".rar", ".zip", ".7z"]:

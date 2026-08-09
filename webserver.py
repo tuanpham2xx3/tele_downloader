@@ -20,6 +20,8 @@ LOG_FILES = {
     "acc2":       BASE_DIR / "pipeline_acc2.log",
     "acc3":       BASE_DIR / "pipeline_acc3.log",
     "dispatcher": BASE_DIR / "pipeline_dispatcher.log",
+    "processor":  BASE_DIR / ".runtime" / "processor.stdout.log",
+    "uploader":   BASE_DIR / ".runtime" / "uploader.stdout.log",
 }
 CSV_PATH = BASE_DIR / "telegram_media_downloader" / "full_hoahoc.csv"
 
@@ -49,6 +51,8 @@ h1{color:#58a6ff;font-size:17px;flex-shrink:0}
 .tab.t2{border-top:2px solid #58a6ff}
 .tab.t3{border-top:2px solid #f78166}
 .tab.t4{border-top:2px solid #d2a8ff}
+.tab.t5{border-top:2px solid #39c5cf}
+.tab.t6{border-top:2px solid #ff9bce}
 .tab.csv{border-top:2px solid #e3b341}
 .panel{display:none;background:#161b22;border:1px solid #30363d;border-radius:0 8px 8px 8px;padding:12px;flex:1;overflow-y:auto;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;line-height:1.6;min-height:0}
 .panel.active{display:block}
@@ -83,25 +87,29 @@ label{font-size:12px;color:#8b949e;cursor:pointer;display:flex;align-items:cente
   <div class="tab t2"        onclick="sw(1)">&#x1F535; Acc 2 (Relay)</div>
   <div class="tab t3"        onclick="sw(2)">&#x1F7E0; Acc 3 (Relay)</div>
   <div class="tab t4"        onclick="sw(3)">&#x1F6F0;&#xFE0F; Dispatcher</div>
-  <div class="tab csv"       onclick="sw(4)">&#x1F4CA; CSV Status</div>
-  <div class="tab csv" style="border-top:2px solid #a371f7" onclick="sw(5)">📦 Pack Tracker</div>
+  <div class="tab t5"        onclick="sw(4)">&#x2699;&#xFE0F; Processor</div>
+  <div class="tab t6"        onclick="sw(5)">&#x2601;&#xFE0F; Uploader</div>
+  <div class="tab csv"       onclick="sw(6)">&#x1F4CA; CSV Status</div>
+  <div class="tab csv" style="border-top:2px solid #a371f7" onclick="sw(7)">📦 Pack Tracker</div>
 </div>
 <div class="panel active" id="p0">Dang tai...</div>
 <div class="panel"        id="p1">Dang tai...</div>
 <div class="panel"        id="p2">Dang tai...</div>
 <div class="panel"        id="p3">Dang tai...</div>
-<div class="panel"        id="p4"><div id="csvWrap">Dang tai CSV...</div></div>
-<div class="panel"        id="p5"><div id="packWrap">Dang tai Pack Tracker...</div></div>
+<div class="panel"        id="p4">Dang tai...</div>
+<div class="panel"        id="p5">Dang tai...</div>
+<div class="panel"        id="p6"><div id="csvWrap">Dang tai CSV...</div></div>
+<div class="panel"        id="p7"><div id="packWrap">Dang tai Pack Tracker...</div></div>
 
 <script>
 var cur=0;
-function colorize(t){return t.replace(/\[SUCCESS\]/g,'<span class="S">[SUCCESS]</span>').replace(/\[ERROR\]/g,'<span class="E">[ERROR]</span>').replace(/\[WARN\]/g,'<span class="W">[WARN]</span>').replace(/\[INFO\]/g,'<span class="I">[INFO]</span>');}
+function colorize(t){return t.replace(/\\[SUCCESS\\]/g,'<span class="S">[SUCCESS]</span>').replace(/\\[ERROR\\]/g,'<span class="E">[ERROR]</span>').replace(/\\[WARN\\]/g,'<span class="W">[WARN]</span>').replace(/\\[INFO\\]/g,'<span class="I">[INFO]</span>');}
 function sw(i){document.querySelectorAll('.tab').forEach(function(t,j){t.classList.toggle('active',i===j)});document.querySelectorAll('.panel').forEach(function(p,j){p.classList.toggle('active',i===j)});cur=i;}
 async function fp(url,pid){try{var r=await fetch(url);var t=await r.text();var p=document.getElementById(pid);p.innerHTML=colorize(t.replace(/</g,'&lt;').replace(/>/g,'&gt;'));if(document.getElementById('as').checked&&pid==='p'+cur)p.scrollTop=p.scrollHeight;}catch(e){}}
-async function fetchCSV(){try{var r=await fetch('/api/csv');var rows=await r.json();if(!rows.length){document.getElementById('csvWrap').textContent='(Chua co du lieu)';return;}var cols=Object.keys(rows[0]);var html='<table><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';rows.forEach(function(row){var st=(row.status||'').replace(/\s/g,'_');html+='<tr>'+cols.map(function(c){return '<td class="'+(c==='status'?'st-'+st:'')+'">'+(row[c]||'')+'</td>';}).join('')+'</tr>';});html+='</table>';document.getElementById('csvWrap').innerHTML=html;}catch(e){}}
+async function fetchCSV(){try{var r=await fetch('/api/csv');var rows=await r.json();if(!rows.length){document.getElementById('csvWrap').textContent='(Chua co du lieu)';return;}var cols=Object.keys(rows[0]);var html='<table><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';rows.forEach(function(row){var st=(row.status||'').replace(/\\s/g,'_');html+='<tr>'+cols.map(function(c){return '<td class="'+(c==='status'?'st-'+st:'')+'">'+(row[c]||'')+'</td>';}).join('')+'</tr>';});html+='</table>';document.getElementById('csvWrap').innerHTML=html;}catch(e){}}
 async function fetchPacks(){try{var r=await fetch('/api/pack_tracker');var rows=await r.json();if(!rows.length){document.getElementById('packWrap').textContent='(Chua co lich su dot Upload)';return;}var cols=Object.keys(rows[0]);var html='<table><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';rows.reverse().forEach(function(row){html+='<tr>'+cols.map(function(c){return '<td>'+(row[c]||'')+'</td>';}).join('')+'</tr>';});html+='</table>';document.getElementById('packWrap').innerHTML=html;}catch(e){}}
 function dl(url){var a=document.createElement('a');a.href=url;a.click();}
-function fetchAll(){fp('/api/logs/acc1','p0');fp('/api/logs/acc2','p1');fp('/api/logs/acc3','p2');fp('/api/logs/dispatcher','p3');fetchCSV();fetchPacks();}
+function fetchAll(){fp('/api/logs/acc1','p0');fp('/api/logs/acc2','p1');fp('/api/logs/acc3','p2');fp('/api/logs/dispatcher','p3');fp('/api/logs/processor','p4');fp('/api/logs/uploader','p5');fetchCSV();fetchPacks();}
 fetchAll();
 setInterval(fetchAll,2500);
 </script>
@@ -136,6 +144,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_text(read_tail(LOG_FILES["acc3"]))
         elif p == "/api/logs/dispatcher":
             self.send_text(read_tail(LOG_FILES["dispatcher"]))
+        elif p == "/api/logs/processor":
+            self.send_text(read_tail(LOG_FILES["processor"]))
+        elif p == "/api/logs/uploader":
+            self.send_text(read_tail(LOG_FILES["uploader"]))
         elif p == "/api/csv":
             rows = []
             if CSV_PATH.exists():

@@ -520,7 +520,15 @@ class TdlibClient:
                 # GetFile and start-download, or the transfer may complete in
                 # that window. Polling is correct for both idempotent replies.
                 error_text = str(exc).lower()
-                if not any(
+                if any(
+                    marker in error_text
+                    for marker in (
+                        "sqlite_constraint_primarykey",
+                        "unique constraint",
+                    )
+                ):
+                    await self.restart_file_download(message.file.id)
+                elif not any(
                     marker in error_text
                     for marker in (
                         "file is downloading",

@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import sys
 import time
 from datetime import datetime
@@ -25,6 +26,7 @@ STATE_PATH = RUNTIME / "pipeline-state.json"
 CSV_PATH = ROOT / "telegram_media_downloader" / "full_hoahoc.csv"
 MONITOR_LOG = RUNTIME / "pipeline-monitor.log"
 ALERT_LOG = RUNTIME / "pipeline-monitor-alerts.log"
+UPLOAD_QUEUE_PATH = RUNTIME / "upload-jobs.db"
 INTERVAL_SECONDS = 30
 STALL_SECONDS = 15 * 60
 
@@ -32,11 +34,21 @@ LOG_FILES = {
     "acc1": [RUNTIME / "pipeline_acc1.stdout.log", RUNTIME / "pipeline_acc1.stderr.log"],
     "acc2": [ROOT / "pipeline_acc2.log", RUNTIME / "pipeline_acc2.stderr.log"],
     "acc3": [ROOT / "pipeline_acc3.log", RUNTIME / "pipeline_acc3.stderr.log"],
+    "processor": [RUNTIME / "processor.stdout.log", RUNTIME / "processor.stderr.log"],
+    "uploader": [RUNTIME / "uploader.stdout.log", RUNTIME / "uploader.stderr.log"],
+}
+
+SERVICE_PORTS = {
+    "acc1": 5000,
+    "acc2": 5001,
+    "acc3": 5002,
+    "processor": None,
+    "uploader": None,
 }
 
 ERROR_PATTERNS = re.compile(
     r"Traceback|PermissionError|UnicodeEncodeError|database is locked|"
-    r"size mismatch|FAILED_DOWNLOAD|FAILED_RCLONE|FAILED_EXTRACT|\[ERROR\]",
+    r"size mismatch|FAILED_DOWNLOAD|FAILED_RCLONE|FAILED_EXTRACT|FAILED_PROCESS|\[ERROR\]",
     re.IGNORECASE,
 )
 
@@ -130,6 +142,46 @@ def newest_log_age(paths: Iterable[Path]) -> float | None:
     return time.time() - max(mtimes) if mtimes else None
 
 
+def load_upload_queue_state() -> Dict[str, int] | None:
+    """Read queue counts without creating or mutating the SQLite database."""
+    if not UPLOAD_QUEUE_PATH.exists():
+        return None
+    try:
+        uri = f"{UPLOAD_QUEUE_PATH.resolve().as_uri()}?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=2) as connection:
+            rows = connection.execute(
+                "SELECT status, COUNT(*) FROM upload_jobs GROUP BY status"
+            ).fetchall()
+            due_rows = connection.execute(
+                """SELECT status, COUNT(*) FROM upload_jobs
+                   WHERE next_retry_at <= ? GROUP BY status""",
+                (time.time(),),
+            ).fetchall()
+        counts = {str(status): int(count) for status, count in rows}
+        counts.update({f"due:{status}": int(count) for status, count in due_rows})
+        return counts
+    except (OSError, sqlite3.Error):
+        return None
+
+
+def service_can_be_idle(name: str, queue_state: Dict[str, int] | None) -> bool:
+    if queue_state is None:
+        return False
+    if name == "processor":
+        return not (
+            queue_state.get("PROCESSING", 0)
+            or queue_state.get("due:DOWNLOADED", 0)
+            or queue_state.get("due:FAILED_PROCESS", 0)
+        )
+    if name == "uploader":
+        return not (
+            queue_state.get("UPLOADING", 0)
+            or queue_state.get("due:READY_UPLOAD", 0)
+            or queue_state.get("due:RETRY_UPLOAD", 0)
+        )
+    return False
+
+
 def read_new_errors(path: Path, offsets: Dict[str, int]) -> List[str]:
     key = str(path)
     if not path.exists():
@@ -201,20 +253,26 @@ def monitor_loop() -> None:
             return
 
         alerts: List[str] = []
+        queue_state = load_upload_queue_state()
         tdlib_up = port_listening(8080)
         statuses = [f"tdlib={'UP' if tdlib_up else 'DOWN'}"]
         if not tdlib_up:
             alerts.append("TDLib backend unhealthy: port8080=False")
-        for name, port in (("acc1", 5000), ("acc2", 5001), ("acc3", 5002)):
+        for name, port in SERVICE_PORTS.items():
             entry = pipelines.get(name)
             alive = bool(entry and process_alive(int(entry.get("Pid", 0))))
-            listening = port_listening(port)
-            statuses.append(f"{name}={'UP' if alive and listening else 'DOWN'}")
-            if not alive or not listening:
-                alerts.append(f"{name} unhealthy: process={alive}, port{port}={listening}")
+            listening = port_listening(port) if port is not None else True
+            healthy = alive and listening
+            statuses.append(f"{name}={'UP' if healthy else 'DOWN'}")
+            if not healthy:
+                detail = f"process={alive}"
+                if port is not None:
+                    detail += f", port{port}={listening}"
+                alerts.append(f"{name} unhealthy: {detail}")
 
             age = newest_log_age(LOG_FILES[name])
-            if alive and age is not None and age > STALL_SECONDS:
+            idle_ok = service_can_be_idle(name, queue_state)
+            if alive and age is not None and age > STALL_SECONDS and not idle_ok:
                 alerts.append(f"{name} log stalled for {int(age)}s")
 
             for path in LOG_FILES[name]:
@@ -231,10 +289,18 @@ def monitor_loop() -> None:
         if free_disk < 10.0:
             alerts.append(f"Low disk: {free_disk:.1f}GB free")
 
+        queue_summary = "queue=unavailable"
+        if queue_state is not None:
+            active_statuses = (
+                "DOWNLOADED", "PROCESSING", "READY_UPLOAD", "UPLOADING", "RETRY_UPLOAD"
+            )
+            queue_summary = "queue=" + ",".join(
+                f"{status}:{queue_state.get(status, 0)}" for status in active_statuses
+            )
         write_line(
             f"{' | '.join(statuses)} | active={sum(1 for _, status in ownership if status.startswith('PROCESSING_'))} "
             f"| queued={sum(1 for _, status in ownership if status.startswith('FORWARDED_'))} "
-            f"| RAM={free_ram:.1f}GB | disk={free_disk:.1f}GB"
+            f"| {queue_summary} | RAM={free_ram:.1f}GB | disk={free_disk:.1f}GB"
         )
         for alert in alerts:
             write_line(alert, alert=True)
