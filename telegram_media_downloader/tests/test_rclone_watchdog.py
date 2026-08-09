@@ -1,6 +1,10 @@
 import unittest
+from unittest.mock import patch
 
-from telegram_media_downloader.rclone_watchdog import parse_transferred_bytes
+from telegram_media_downloader.rclone_watchdog import (
+    parse_transferred_bytes,
+    remote_has_completion_marker,
+)
 
 
 class ParseTransferredBytesTests(unittest.TestCase):
@@ -15,6 +19,13 @@ class ParseTransferredBytesTests(unittest.TestCase):
 
     def test_ignores_non_stats_output(self):
         self.assertIsNone(parse_transferred_bytes("Checks: 14 / 14, 100%"))
+
+    @patch("telegram_media_downloader.rclone_watchdog.subprocess.run")
+    def test_marker_timeout_is_incomplete_not_fatal(self, run):
+        import subprocess
+
+        run.side_effect = subprocess.TimeoutExpired(["rclone", "lsf"], 30)
+        self.assertFalse(remote_has_completion_marker("gdrive:/course"))
 
 
 if __name__ == "__main__":

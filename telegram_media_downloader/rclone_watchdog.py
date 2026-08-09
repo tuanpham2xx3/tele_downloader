@@ -136,12 +136,14 @@ def mark_remote_complete(target_remote_path: str, timeout: float = 60) -> bool:
 
 
 def remote_has_completion_marker(target_remote_path: str, timeout: float = 30) -> bool:
-    result = subprocess.run(
-        ["rclone", "lsf", f"{target_remote_path.rstrip('/')}/{COMPLETION_MARKER}"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=timeout,
-    )
-    return result.returncode == 0 and COMPLETION_MARKER in result.stdout
-
+    try:
+        result = subprocess.run(
+            ["rclone", "lsf", f"{target_remote_path.rstrip('/')}/{COMPLETION_MARKER}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode == 0 and COMPLETION_MARKER in result.stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return False
