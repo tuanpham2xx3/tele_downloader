@@ -79,6 +79,16 @@ if [ ! -f "$RUNTIME/tdlib/telegram-files.jar" ]; then
     bash "$ROOT/setup-tdlib.sh"
 fi
 
+# telegram-files 0.4 protects its API with an administrator session. Export
+# the private runtime configuration so downloader workers can re-authenticate
+# automatically without putting credentials on their command lines.
+if [ -f "$RUNTIME/tdlib.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$RUNTIME/tdlib.env"
+    set +a
+fi
+
 "$PYTHON_BIN" -c "import requests, websockets, rich"
 "$PYTHON_BIN" tdlib_backend.py start
 "$PYTHON_BIN" - <<'PY'
