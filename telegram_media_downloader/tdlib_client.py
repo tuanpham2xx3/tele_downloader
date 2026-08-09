@@ -651,11 +651,14 @@ class TdlibClient:
                 f"Size mismatch for {message.file.name}: "
                 f"{destination.stat().st_size if destination.exists() else 0}/{expected}"
             )
-        # The destination is already complete at this point. Cache cleanup is
-        # best-effort: an HTTP failure while removing TDLib's cached link must
-        # not turn a valid local file into a failed download/retry cycle.
+        # The staging destination is complete and size-verified. Always unlink
+        # TDLib's local cache path after updating the gateway record; this also
+        # closes the disk leak when the gateway cleanup endpoint is unavailable.
         try:
             await self.remove_file(message.file.id)
         except Exception:
             self._file_updates.pop(int(message.file.id), None)
+        finally:
+            if local_path.resolve() != destination.resolve():
+                await asyncio.to_thread(local_path.unlink, missing_ok=True)
         return destination

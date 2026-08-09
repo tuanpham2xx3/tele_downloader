@@ -495,6 +495,7 @@ class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
             result = await client.download_message(message, destination, timeout=10)
 
             self.assertEqual(result.read_bytes(), b"keep-destination")
+            self.assertFalse(cached.exists())
             client.remove_file.assert_awaited_once_with(47)
 
 

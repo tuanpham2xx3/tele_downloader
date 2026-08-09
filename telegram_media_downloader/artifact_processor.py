@@ -85,59 +85,107 @@ def _link_or_copy(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination)
 
 
-def _choose_extracted_dir(course_dir: Path, archives_dir: Path) -> tuple[Path, bool]:
-    """Use bounded tmpfs scratch only when the compressed course safely fits."""
-    disk_dir = course_dir / "extracted"
-    if not RAM_SCRATCH_ROOT.is_dir() or not archives_dir.is_dir():
+def _choose_extraction_work_dir(
+    course_dir: Path, archive: Path, family: list[Path]
+) -> tuple[Path, bool]:
+    """Choose bounded tmpfs per archive, allowing large courses to stream."""
+    key = hashlib.sha256(
+        f"{course_dir.resolve()}::{archive.name}".encode("utf-8")
+    ).hexdigest()[:16]
+    disk_dir = course_dir / "extract_work" / key
+    if not RAM_SCRATCH_ROOT.is_dir():
         return disk_dir, False
-    archive_bytes = sum(path.stat().st_size for path in archives_dir.iterdir() if path.is_file())
+    archive_bytes = sum(path.stat().st_size for path in family if path.is_file())
     estimated_working_set = max(archive_bytes * 2, RAM_SCRATCH_RESERVE)
     free = shutil.disk_usage(RAM_SCRATCH_ROOT).free
     if estimated_working_set > RAM_SCRATCH_LIMIT or estimated_working_set + RAM_SCRATCH_RESERVE > free:
         return disk_dir, False
-    key = hashlib.sha256(str(course_dir.resolve()).encode("utf-8")).hexdigest()[:16]
     scratch_dir = RAM_SCRATCH_ROOT / "extract" / key
-    shutil.rmtree(scratch_dir, ignore_errors=True)
-    scratch_dir.mkdir(parents=True, exist_ok=True)
     return scratch_dir, True
+
+
+def _move_unique(source: Path, destination_dir: Path) -> None:
+    destination = _unique_destination(destination_dir, source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        source.unlink(missing_ok=True)
+    else:
+        shutil.move(source, destination)
+
+
+def _ingest_tree(source_root: Path, upload_dir: Path, materials_dir: Path) -> None:
+    """Move extracted output into its durable upload/materials staging trees."""
+    for source in [path for path in source_root.rglob("*") if path.is_file()]:
+        if source.suffix.lower() in VIDEO_EXTENSIONS:
+            _move_unique(source, upload_dir)
+            continue
+        relative = source.relative_to(source_root)
+        destination = materials_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and destination.stat().st_size != source.stat().st_size:
+            destination = _unique_destination(destination.parent, source)
+        if destination.exists():
+            source.unlink(missing_ok=True)
+        else:
+            shutil.move(source, destination)
 
 
 def prepare_course(course_dir: Path, log: Callable[[str], None] = print) -> Path:
     """Build upload artifacts and release each raw archive after extraction."""
     archives_dir = course_dir / "archives"
-    extracted_dir, using_ram = _choose_extracted_dir(course_dir, archives_dir)
+    extracted_dir = course_dir / "extracted"
+    extract_work_dir = course_dir / "extract_work"
+    materials_dir = course_dir / "materials_staging"
     upload_dir = course_dir / "upload"
     marker = course_dir / PROCESSING_MARKER
     if marker.is_file() and upload_dir.is_dir() and any(upload_dir.iterdir()):
         shutil.rmtree(archives_dir, ignore_errors=True)
         shutil.rmtree(extracted_dir, ignore_errors=True)
+        shutil.rmtree(extract_work_dir, ignore_errors=True)
+        shutil.rmtree(materials_dir, ignore_errors=True)
         return upload_dir
     if not (
         (archives_dir.is_dir() and any(archives_dir.iterdir()))
         or (extracted_dir.is_dir() and any(extracted_dir.iterdir()))
+        or (materials_dir.is_dir() and any(materials_dir.iterdir()))
+        or (upload_dir.is_dir() and any(upload_dir.iterdir()))
     ):
         raise RuntimeError(f"No downloaded or extracted files found in {course_dir}")
 
-    # Preserve extracted output across retries because successful source
-    # archives are deleted immediately to keep disk usage bounded.
-    shutil.rmtree(upload_dir, ignore_errors=True)
+    # Durable upload/material staging is preserved across retries because each
+    # successful archive family is deleted immediately after being ingested.
     marker.unlink(missing_ok=True)
-    extracted_dir.mkdir(parents=True, exist_ok=True)
-    upload_dir.mkdir(parents=True)
-    if using_ram:
-        log(f"Using RAM scratch for extraction: {extracted_dir}")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    materials_dir.mkdir(parents=True, exist_ok=True)
+
+    # Migrate output left by the previous whole-course extraction strategy.
+    if extracted_dir.is_dir() and any(extracted_dir.iterdir()):
+        _ingest_tree(extracted_dir, upload_dir, materials_dir)
+    shutil.rmtree(extracted_dir, ignore_errors=True)
 
     raw_files = [path for path in archives_dir.iterdir() if path.is_file()]
     archive_headers = [path for path in raw_files if is_archive_header(path)]
     for archive in archive_headers:
-        log(f"Extracting {archive.name}")
-        ok, error = _extract(archive, extracted_dir)
+        family = _archive_family(archive, raw_files)
+        work_dir, using_ram = _choose_extraction_work_dir(course_dir, archive, family)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        location = "RAM" if using_ram else "disk"
+        log(f"Extracting {archive.name} via {location} scratch")
+        ok, error = _extract(archive, work_dir)
+        if not ok and using_ram:
+            log(f"RAM scratch failed for {archive.name}; retrying on disk")
+            shutil.rmtree(work_dir, ignore_errors=True)
+            work_dir = course_dir / "extract_work" / work_dir.name
+            shutil.rmtree(work_dir, ignore_errors=True)
+            work_dir.mkdir(parents=True, exist_ok=True)
+            ok, error = _extract(archive, work_dir)
         if not ok:
-            if using_ram:
-                shutil.rmtree(extracted_dir, ignore_errors=True)
+            shutil.rmtree(work_dir, ignore_errors=True)
             raise RuntimeError(f"Cannot extract {archive.name}: {error}")
 
-        family = _archive_family(archive, raw_files)
+        _ingest_tree(work_dir, upload_dir, materials_dir)
+        shutil.rmtree(work_dir, ignore_errors=True)
         released = 0
         for member in family:
             if member.exists():
@@ -157,29 +205,25 @@ def prepare_course(course_dir: Path, log: Callable[[str], None] = print) -> Path
     for source in remaining:
         if source in archive_members:
             continue
-        destination = _unique_destination(extracted_dir, source)
-        if not destination.exists():
-            shutil.move(source, destination)
+        if source.suffix.lower() in VIDEO_EXTENSIONS:
+            _move_unique(source, upload_dir)
         else:
-            source.unlink()
+            destination = materials_dir / source.name
+            if destination.exists() and destination.stat().st_size != source.stat().st_size:
+                destination = _unique_destination(materials_dir, source)
+            if destination.exists():
+                source.unlink(missing_ok=True)
+            else:
+                shutil.move(source, destination)
 
-    all_files = [path for path in extracted_dir.rglob("*") if path.is_file()]
-    videos = [path for path in all_files if path.suffix.lower() in VIDEO_EXTENSIONS]
-    documents = [path for path in all_files if path not in videos]
-    if not all_files:
-        raise RuntimeError("Processing produced no uploadable files")
-
-    for video in videos:
-        destination = _unique_destination(upload_dir, video)
-        if not destination.exists():
-            _link_or_copy(video, destination)
-
+    documents = [path for path in materials_dir.rglob("*") if path.is_file()]
     if documents:
         materials = upload_dir / "Class_Materials.zip"
+        materials.unlink(missing_ok=True)
         with zipfile.ZipFile(materials, "w", compression=zipfile.ZIP_DEFLATED,
                              compresslevel=1, allowZip64=True) as handle:
             for document in documents:
-                handle.write(document, document.relative_to(extracted_dir))
+                handle.write(document, document.relative_to(materials_dir))
 
     if not any(upload_dir.iterdir()):
         raise RuntimeError("Upload directory is empty")
@@ -187,4 +231,6 @@ def prepare_course(course_dir: Path, log: Callable[[str], None] = print) -> Path
     marker.write_text("complete\n", encoding="utf-8")
     shutil.rmtree(archives_dir, ignore_errors=True)
     shutil.rmtree(extracted_dir, ignore_errors=True)
+    shutil.rmtree(extract_work_dir, ignore_errors=True)
+    shutil.rmtree(materials_dir, ignore_errors=True)
     return upload_dir
