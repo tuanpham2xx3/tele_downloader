@@ -57,11 +57,12 @@ stop_one() {
 if [ "$ACTION" = "status" ]; then
     "$PYTHON_BIN" tdlib_backend.py status || true
     for name in acc1 acc2 acc3 processor uploader monitor dashboard cloudflared; do status_one "$name"; done
+    if [ -f "$PID_DIR/dispatcher.pid" ]; then status_one dispatcher; fi
     exit 0
 fi
 
 if [ "$ACTION" = "stop" ]; then
-    for name in cloudflared dashboard monitor uploader processor acc3 acc2 acc1; do stop_one "$name"; done
+    for name in cloudflared dashboard monitor uploader processor dispatcher acc3 acc2 acc1; do stop_one "$name"; done
     rm -f "$STATE"
     "$PYTHON_BIN" tdlib_backend.py stop
     echo "Native TDLib pipelines stopped."
@@ -73,7 +74,7 @@ if [ "$ACTION" != "start" ]; then
     exit 2
 fi
 
-for name in acc1 acc2 acc3 processor uploader monitor dashboard; do
+for name in acc1 acc2 acc3 dispatcher processor uploader monitor dashboard; do
     if [ -f "$PID_DIR/$name.pid" ] && alive "$(cat "$PID_DIR/$name.pid")"; then
         echo "$name is already running; use '$0 status' or '$0 stop'." >&2
         exit 2

@@ -763,6 +763,10 @@ async def main():
     parser.add_argument("-p", "--port", help="Cổng Web Monitor Log từ xa", type=int, default=5000)
     parser.add_argument("--relay-acc2", help="Relay Group ID cho Acc 2 (VD: -5040203514)", type=int, default=None)
     parser.add_argument("--relay-acc3", help="Relay Group ID cho Acc 3 (VD: -5281140814)", type=int, default=None)
+    parser.add_argument(
+        "--dispatcher-only", action="store_true",
+        help="Chỉ phân khóa cho relay, không chạy downloader của acc 1",
+    )
     args = parser.parse_args()
 
     # Nạp Web Log Servers (Port 5000 Dashboard chính, Port 5003 Dispatcher riêng)
@@ -933,7 +937,7 @@ async def main():
                     acc3_current_course = None
 
             # 3. Phân công cho Acc 1 chỉ khi THỰC SỰ rảnh (không busy, queue rỗng, và không đang dispatch)
-            if not acc1_is_busy and acc1_queue.empty() and not acc1_dispatching:
+            if not args.dispatcher_only and not acc1_is_busy and acc1_queue.empty() and not acc1_dispatching:
                 acc1_dispatching = True
                 item = await get_next_unprocessed_course("PROCESSING_ACC1")
                 if item:
@@ -1190,8 +1194,12 @@ async def main():
             acc1_is_busy = False
             acc1_queue.task_done()
 
-    log("🚀 Khởi chạy Bộ Giám Sát Dispatcher & Acc 1 Worker song song...", "SUCCESS")
-    await asyncio.gather(continuous_dispatcher(), acc1_worker_loop())
+    if args.dispatcher_only:
+        log("🚀 Khởi chạy Dispatcher-only; downloader acc 1 đã tắt.", "SUCCESS")
+        await continuous_dispatcher()
+    else:
+        log("🚀 Khởi chạy Bộ Giám Sát Dispatcher & Acc 1 Worker song song...", "SUCCESS")
+        await asyncio.gather(continuous_dispatcher(), acc1_worker_loop())
 
     log("\n==========================================", "SUCCESS")
     log("🏁 QUY TRÌNH ĐÃ XỬ LÝ XONG TẤT CẢ CÁC KHÓA HỌC!", "SUCCESS")
