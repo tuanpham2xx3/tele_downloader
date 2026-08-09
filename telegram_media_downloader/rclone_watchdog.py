@@ -147,3 +147,23 @@ def remote_has_completion_marker(target_remote_path: str, timeout: float = 30) -
         return result.returncode == 0 and COMPLETION_MARKER in result.stdout
     except (subprocess.TimeoutExpired, OSError):
         return False
+
+
+def remote_folder_exists(target_remote_path: str, timeout: float = 30) -> bool:
+    """Return True when rclone can list the remote course directory.
+
+    Existing legacy course folders predate the completion marker.  The
+    pipeline's contract treats the folder itself as authoritative, including
+    an empty folder, so only rclone's exit status matters here.
+    """
+    try:
+        result = subprocess.run(
+            ["rclone", "lsf", target_remote_path.rstrip("/"), "--max-depth", "1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False

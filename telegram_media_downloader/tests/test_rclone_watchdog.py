@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from telegram_media_downloader.rclone_watchdog import (
     parse_transferred_bytes,
+    remote_folder_exists,
     remote_has_completion_marker,
 )
 
@@ -26,6 +27,24 @@ class ParseTransferredBytesTests(unittest.TestCase):
 
         run.side_effect = subprocess.TimeoutExpired(["rclone", "lsf"], 30)
         self.assertFalse(remote_has_completion_marker("gdrive:/course"))
+
+    @patch("telegram_media_downloader.rclone_watchdog.subprocess.run")
+    def test_existing_remote_folder_is_complete_even_without_marker(self, run):
+        import subprocess
+
+        run.return_value = subprocess.CompletedProcess(
+            ["rclone", "lsf"], returncode=0, stdout="", stderr=""
+        )
+        self.assertTrue(remote_folder_exists("gdrive:/course"))
+
+    @patch("telegram_media_downloader.rclone_watchdog.subprocess.run")
+    def test_missing_remote_folder_is_not_complete(self, run):
+        import subprocess
+
+        run.return_value = subprocess.CompletedProcess(
+            ["rclone", "lsf"], returncode=3, stdout="", stderr="not found"
+        )
+        self.assertFalse(remote_folder_exists("gdrive:/course"))
 
 
 if __name__ == "__main__":

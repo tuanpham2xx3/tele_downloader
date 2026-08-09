@@ -39,6 +39,11 @@ stop_one() {
     local pid
     pid="$(cat "$pid_file")"
     if alive "$pid"; then
+        if [ "$name" = "processor" ] && command -v pgrep >/dev/null 2>&1; then
+            for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+                kill "$child" 2>/dev/null || true
+            done
+        fi
         kill "$pid" 2>/dev/null || true
         for _ in $(seq 1 20); do
             alive "$pid" || break
@@ -90,6 +95,8 @@ if [ -f "$RUNTIME/tdlib.env" ]; then
 fi
 
 "$PYTHON_BIN" -c "import requests, websockets, rich"
+"$PYTHON_BIN" tdlib_backend.py stop
+"$PYTHON_BIN" telegram_media_downloader/clean_runtime_state.py
 "$PYTHON_BIN" tdlib_backend.py start
 "$PYTHON_BIN" - <<'PY'
 from pathlib import Path
@@ -109,7 +116,6 @@ for port in 5000 5001 5002 5003 8386; do
     fi
 done
 
-"$PYTHON_BIN" telegram_media_downloader/recover_pipeline_state.py
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
 

@@ -30,7 +30,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from csv_status_store import claim_status, load_status, update_status
 from upload_queue import UploadQueue, has_download_capacity, normalize_course_title
-from rclone_watchdog import remote_has_completion_marker
+from rclone_watchdog import remote_folder_exists
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -459,25 +459,16 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     if not claimed:
         log(f"[CLAIM] {owner} skip [{course_title}], status={current}", "SUCCESS", log_path)
         return
-    await wait_for_download_capacity(BASE_DIR, log_path)
 
-    # Check Google Drive directly after this relay owns the course.
-    raw_remote_path = f"{rclone_parent.rstrip('/')}/{course_title.strip()}"
+    # A pre-existing Drive folder is authoritative, including legacy folders
+    # created before completion markers were introduced.
     sanitized_remote_path = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
-    if remote_has_completion_marker(sanitized_remote_path):
-        log(f"[RELAY] Khoa [{course_title}] da co completion marker tren Drive.", "SUCCESS", log_path)
+    if remote_folder_exists(sanitized_remote_path):
+        log(f"[RELAY] Khoa [{course_title}] da co tren Drive.", "SUCCESS", log_path)
         update_csv_status(course_title, "COMPLETED")
         return
-    for check_path in []:
-        try:
-            chk_cmd = ["rclone", "lsf", check_path, "--max-depth", "1"]
-            cres = subprocess.run(chk_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
-            if cres.returncode == 0 and cres.stdout.strip():
-                log(f"[RELAY] ⏭ Khóa [{course_title}] đã TỒN TẠI trên Google Drive. Ghi CSV = COMPLETED & Bỏ qua!", "SUCCESS", log_path)
-                update_csv_status(course_title, "COMPLETED")
-                return
-        except Exception:
-            pass
+
+    await wait_for_download_capacity(BASE_DIR, log_path)
 
     log(f"\n▶ [RELAY] Bắt đầu xử lý khóa: {course_title}", "SUCCESS", log_path)
 

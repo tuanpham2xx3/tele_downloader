@@ -30,7 +30,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from csv_status_store import claim_status, load_status, update_status
 from upload_queue import UploadQueue, has_download_capacity, normalize_course_title
-from rclone_watchdog import remote_has_completion_marker
+from rclone_watchdog import remote_folder_exists
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -691,29 +691,17 @@ def get_all_remote_folders(rclone_parent: str, force_refresh: bool = False) -> s
 
 def check_rclone_folder_exists(rclone_parent: str, course_title: str, force_refresh: bool = False) -> bool:
     target = f"{rclone_parent.rstrip('/')}/{sanitize_name(course_title)}"
-    return remote_has_completion_marker(target)
+    return remote_folder_exists(target)
 
-    sanitized_folder = sanitize_name(course_title)
-    clean_t = normalize_title(course_title)
-    raw_t = course_title.strip()
 
-    existing_folders = get_all_remote_folders(rclone_parent, force_refresh=force_refresh)
-
-    # 1. So sánh trực tiếp tên gốc & tên sanitized
-    if raw_t in existing_folders or sanitized_folder in existing_folders:
-        return True
-
-    # 2. So sánh sau khi chuẩn hóa ký tự đặc biệt (&, _, space, case-insensitive)
-    normalized_remotes = {normalize_title(f): f for f in existing_folders}
-    if clean_t in normalized_remotes:
-        return True
-
-    # 3. So sánh mờ (Fuzzy matching - chứa chuỗi)
-    for norm_f in normalized_remotes.keys():
-        if clean_t and (clean_t in norm_f or norm_f in clean_t):
-            return True
-
-    return False
+def remote_folder_in_index(existing_folders: set, course_title: str) -> bool:
+    """Match a Telegram course title against one cached Drive folder listing."""
+    remote_keys = {
+        normalize_title(folder.strip().rstrip("/")).casefold()
+        for folder in existing_folders
+    }
+    candidates = (course_title.strip(), sanitize_name(course_title))
+    return any(normalize_title(candidate).casefold() in remote_keys for candidate in candidates)
 
 
 async def parallel_download_media(client: TdlibClient, msg: TdlibMessage, save_path: Path, workers: int = 4) -> None:
@@ -864,7 +852,7 @@ async def main():
         """
         if load_csv_status().get(normalize_title(c_title)) == "COMPLETED":
             return True
-        return False
+        return remote_folder_in_index(get_all_remote_folders(rclone_parent), c_title)
 
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []
     for idx, (c_title, c_files) in enumerate(courses_map, 1):
