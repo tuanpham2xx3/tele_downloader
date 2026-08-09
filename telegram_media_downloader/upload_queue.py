@@ -207,7 +207,7 @@ class UploadQueue:
 
 def has_download_capacity(
     queue: UploadQueue, storage_path: Path | str, *, max_pending: int = 3,
-    min_free_gb: float = 20.0,
+    min_free_gb: float = 10.0,
 ) -> tuple[bool, str]:
     pending = queue.pending_count()
     if pending >= max_pending:

@@ -1,9 +1,12 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from telegram_media_downloader.upload_queue import (
     DOWNLOADED, PROCESSING, READY_UPLOAD, UPLOADING, UploadQueue,
+    has_download_capacity,
 )
 
 
@@ -48,6 +51,17 @@ class UploadQueueTests(unittest.TestCase):
                                             course_dir=self.temp.name, rclone_parent="gdrive:")
         self.queue.set_status(job.id, "COMPLETED")
         self.assertEqual([item.id for item in self.queue.jobs_with_status("COMPLETED")], [job.id])
+
+    @patch("telegram_media_downloader.upload_queue.shutil.disk_usage")
+    def test_default_disk_reserve_is_ten_gib(self, disk_usage):
+        disk_usage.return_value = SimpleNamespace(free=15 * 1024**3)
+        available, reason = has_download_capacity(self.queue, self.temp.name)
+        self.assertTrue(available, reason)
+
+        disk_usage.return_value = SimpleNamespace(free=9 * 1024**3)
+        available, reason = has_download_capacity(self.queue, self.temp.name)
+        self.assertFalse(available)
+        self.assertIn("<10.0GB", reason)
 
 
 if __name__ == "__main__":
