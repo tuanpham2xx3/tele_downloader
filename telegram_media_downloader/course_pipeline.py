@@ -864,9 +864,6 @@ async def main():
         """
         if load_csv_status().get(normalize_title(c_title)) == "COMPLETED":
             return True
-        if check_rclone_folder_exists(rclone_parent, c_title):
-            update_csv_status(c_title, "COMPLETED")
-            return True
         return False
 
     pending_pool: List[Tuple[int, str, List[Tuple[str, Any]]]] = []

@@ -463,22 +463,30 @@ class TdlibClient:
         )
         self._file_updates.pop(int(file_id), None)
 
-    async def restart_file_download(self, file_id: int) -> None:
-        """Reset a zombie TDLib transfer while preserving its partial bytes."""
-        await self.call(
-            "CancelDownloadFile",
-            {"fileId": int(file_id), "onlyIfPending": False},
-        )
-        self._file_updates.pop(int(file_id), None)
+    async def restart_file_download(self, message: TdlibMessage) -> None:
+        """Clear both the gateway record and TDLib cache, then start cleanly."""
+        file_id = int(message.file.id)
+        try:
+            await self._request(
+                "POST",
+                f"/{self.account_id}/file/cancel-download",
+                json_body={"fileId": file_id},
+            )
+        except TdlibError:
+            await self.call(
+                "CancelDownloadFile",
+                {"fileId": file_id, "onlyIfPending": False},
+            )
+            await self.call("DeleteFile", {"fileId": file_id})
+        self._file_updates.pop(file_id, None)
         await asyncio.sleep(1)
-        await self.call(
-            "DownloadFile",
-            {
-                "fileId": int(file_id),
-                "priority": 32,
-                "offset": 0,
-                "limit": 0,
-                "synchronous": False,
+        await self._request(
+            "POST",
+            f"/{self.account_id}/file/start-download",
+            json_body={
+                "chatId": int(message.chat_id),
+                "messageId": int(message.id),
+                "fileId": file_id,
             },
         )
 
@@ -504,6 +512,10 @@ class TdlibClient:
         # gateway to start the same completed download again.
         file_obj = await self.get_file(message.file.id)
         local = file_obj.get("local") or {}
+        if local.get("isDownloadingActive"):
+            await self.restart_file_download(message)
+            file_obj = await self.get_file(message.file.id)
+            local = file_obj.get("local") or {}
         if not local.get("isDownloadingCompleted") and not local.get("isDownloadingActive"):
             try:
                 await self._request(
@@ -527,7 +539,7 @@ class TdlibClient:
                         "unique constraint",
                     )
                 ):
-                    await self.restart_file_download(message.file.id)
+                    await self.restart_file_download(message)
                 elif not any(
                     marker in error_text
                     for marker in (
@@ -561,7 +573,7 @@ class TdlibClient:
             elif now - last_progress > stall_timeout:
                 if stall_recoveries < 2:
                     stall_recoveries += 1
-                    await self.restart_file_download(message.file.id)
+                    await self.restart_file_download(message)
                     last_progress = time.monotonic()
                     last_size = downloaded
                     continue
