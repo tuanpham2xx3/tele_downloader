@@ -30,6 +30,23 @@ bash start-multi-pipeline.sh stop
 `setup.sh` installs the native dependencies, builds the compatible backend,
 and interactively logs in any missing account. It does not use Docker.
 
+### Move logged-in accounts from Windows to Ubuntu
+
+Stop the backend before copying its data directory. After placing the copied
+database under the `TDLIB_DATA_ROOT` configured in `.runtime/tdlib.env`, run:
+
+```bash
+.venv/bin/python tdlib_admin.py migrate-root
+.venv/bin/python tdlib_backend.py start
+.venv/bin/python tdlib_admin.py list
+```
+
+`migrate-root` refuses to run while the backend is healthy, verifies every
+account directory, creates `data.db.before-root-migration`, rewrites absolute
+Windows account paths, and clears stale local download-cache records. Login
+codes, passwords, account data, and `.runtime/tdlib-accounts.json` must never be
+committed to Git.
+
 ## Runtime data
 
 All private/runtime state is under `.runtime/` and is ignored by Git:

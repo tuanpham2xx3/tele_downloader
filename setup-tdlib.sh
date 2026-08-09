@@ -7,12 +7,14 @@ INSTALL="$RUNTIME/tdlib"
 SOURCE="$INSTALL/source"
 JDK="$INSTALL/jdk"
 LIB="$INSTALL/lib"
+OPENSSL11="$INSTALL/openssl11"
 JAR="$INSTALL/telegram-files.jar"
 ENV_FILE="$RUNTIME/tdlib.env"
 LIBS_ARCHIVE="$RUNTIME/tdlib-libs-1.15.0.zip"
+OPENSSL11_DEB="$RUNTIME/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb"
 
 mkdir -p "$INSTALL" "$LIB"
-for command_name in git curl unzip tar; do
+for command_name in git curl unzip tar dpkg-deb strings; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Missing command: $command_name" >&2
         exit 2
@@ -66,6 +68,27 @@ if [ ! -f "$LIB/libtdjni.so" ]; then
     rm -rf "$EXTRACT"
 fi
 
+# TDLib 1.15 Linux binaries require the OpenSSL 1.1.1 ABI. Keep it isolated
+# from the host OpenSSL instead of downgrading system libraries.
+if [ ! -f "$OPENSSL11/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1" ]; then
+    if [ "$LIB_ARCH" != "linux_x64" ]; then
+        echo "Portable OpenSSL 1.1.1 is currently packaged only for linux_x64." >&2
+        exit 2
+    fi
+    if [ ! -f "$OPENSSL11_DEB" ]; then
+        curl -fL \
+            "https://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb" \
+            -o "$OPENSSL11_DEB"
+    fi
+    mkdir -p "$OPENSSL11"
+    dpkg-deb -x "$OPENSSL11_DEB" "$OPENSSL11"
+fi
+OPENSSL11_LIB="$OPENSSL11/usr/lib/x86_64-linux-gnu"
+if ! strings "$OPENSSL11_LIB/libcrypto.so.1.1" | grep -q '^OPENSSL_1_1_1'; then
+    echo "Portable libcrypto does not provide OPENSSL_1_1_1." >&2
+    exit 2
+fi
+
 if [ ! -f "$JAR" ]; then
     export JAVA_HOME="$JDK"
     export PATH="$JDK/bin:$PATH"
@@ -82,8 +105,10 @@ if [ ! -f "$ENV_FILE" ]; then
         exit 2
     fi
     umask 077
-    printf 'TELEGRAM_API_ID=%s\nTELEGRAM_API_HASH=%s\nTDLIB_JAVA=%s\nTDLIB_JAR_PATH=%s\nTDLIB_LIBRARY_PATH=%s\nTDLIB_DATA_ROOT=%s\n' \
-        "$API_ID" "$API_HASH" "$JDK/bin/java" "$JAR" "$LIB" "$INSTALL/data" > "$ENV_FILE"
+    printf 'TELEGRAM_API_ID=%s\nTELEGRAM_API_HASH=%s\nTDLIB_JAVA=%s\nTDLIB_JAR_PATH=%s\nTDLIB_LIBRARY_PATH=%s\nTDLIB_DATA_ROOT=%s\nLD_LIBRARY_PATH=%s\n' \
+        "$API_ID" "$API_HASH" "$JDK/bin/java" "$JAR" "$LIB" "$INSTALL/data" "$OPENSSL11_LIB" > "$ENV_FILE"
+elif ! grep -q '^LD_LIBRARY_PATH=' "$ENV_FILE"; then
+    printf 'LD_LIBRARY_PATH=%s\n' "$OPENSSL11_LIB" >> "$ENV_FILE"
 fi
 
 "$JDK/bin/java" -version
