@@ -2,10 +2,13 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from telegram_media_downloader.artifact_processor import (
     PROCESSING_MARKER,
     _archive_family,
+    _choose_extracted_dir,
     prepare_course,
 )
 
@@ -36,6 +39,24 @@ class ArtifactProcessorTests(unittest.TestCase):
         root = Path("course")
         files = [root / "lesson.z01", root / "lesson.z02", root / "lesson.zip"]
         self.assertEqual(set(_archive_family(files[-1], files)), set(files))
+
+    @patch("telegram_media_downloader.artifact_processor.RAM_SCRATCH_LIMIT", 4 * 1024**3)
+    @patch("telegram_media_downloader.artifact_processor.shutil.disk_usage")
+    def test_small_course_uses_bounded_ram_scratch(self, disk_usage):
+        disk_usage.return_value = SimpleNamespace(free=4 * 1024**3)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            course = root / "course"
+            archives = course / "archives"
+            scratch = root / "ram"
+            archives.mkdir(parents=True)
+            scratch.mkdir()
+            (archives / "lesson.zip").write_bytes(b"x" * 1024)
+            with patch("telegram_media_downloader.artifact_processor.RAM_SCRATCH_ROOT", scratch):
+                extracted, using_ram = _choose_extracted_dir(course, archives)
+            self.assertTrue(using_ram)
+            self.assertTrue(extracted.is_dir())
+            self.assertTrue(str(extracted).startswith(str(scratch)))
 
 
 if __name__ == "__main__":

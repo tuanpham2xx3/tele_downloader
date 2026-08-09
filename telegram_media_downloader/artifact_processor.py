@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import shutil
 import subprocess
@@ -14,6 +15,9 @@ from typing import Callable
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 ARCHIVE_HEADERS = (".zip", ".rar", ".7z")
 PROCESSING_MARKER = ".processing-complete"
+RAM_SCRATCH_ROOT = Path(os.environ.get("GETURL_RAM_SCRATCH_ROOT", "/mnt/geturl-ram"))
+RAM_SCRATCH_LIMIT = int(float(os.environ.get("GETURL_RAM_SCRATCH_GB", "4")) * 1024**3)
+RAM_SCRATCH_RESERVE = 256 * 1024**2
 
 
 def is_archive_header(path: Path) -> bool:
@@ -81,10 +85,27 @@ def _link_or_copy(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination)
 
 
+def _choose_extracted_dir(course_dir: Path, archives_dir: Path) -> tuple[Path, bool]:
+    """Use bounded tmpfs scratch only when the compressed course safely fits."""
+    disk_dir = course_dir / "extracted"
+    if not RAM_SCRATCH_ROOT.is_dir() or not archives_dir.is_dir():
+        return disk_dir, False
+    archive_bytes = sum(path.stat().st_size for path in archives_dir.iterdir() if path.is_file())
+    estimated_working_set = max(archive_bytes * 2, RAM_SCRATCH_RESERVE)
+    free = shutil.disk_usage(RAM_SCRATCH_ROOT).free
+    if estimated_working_set > RAM_SCRATCH_LIMIT or estimated_working_set + RAM_SCRATCH_RESERVE > free:
+        return disk_dir, False
+    key = hashlib.sha256(str(course_dir.resolve()).encode("utf-8")).hexdigest()[:16]
+    scratch_dir = RAM_SCRATCH_ROOT / "extract" / key
+    shutil.rmtree(scratch_dir, ignore_errors=True)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    return scratch_dir, True
+
+
 def prepare_course(course_dir: Path, log: Callable[[str], None] = print) -> Path:
     """Build upload artifacts and release each raw archive after extraction."""
     archives_dir = course_dir / "archives"
-    extracted_dir = course_dir / "extracted"
+    extracted_dir, using_ram = _choose_extracted_dir(course_dir, archives_dir)
     upload_dir = course_dir / "upload"
     marker = course_dir / PROCESSING_MARKER
     if marker.is_file() and upload_dir.is_dir() and any(upload_dir.iterdir()):
@@ -103,6 +124,8 @@ def prepare_course(course_dir: Path, log: Callable[[str], None] = print) -> Path
     marker.unlink(missing_ok=True)
     extracted_dir.mkdir(parents=True, exist_ok=True)
     upload_dir.mkdir(parents=True)
+    if using_ram:
+        log(f"Using RAM scratch for extraction: {extracted_dir}")
 
     raw_files = [path for path in archives_dir.iterdir() if path.is_file()]
     archive_headers = [path for path in raw_files if is_archive_header(path)]
@@ -110,6 +133,8 @@ def prepare_course(course_dir: Path, log: Callable[[str], None] = print) -> Path
         log(f"Extracting {archive.name}")
         ok, error = _extract(archive, extracted_dir)
         if not ok:
+            if using_ram:
+                shutil.rmtree(extracted_dir, ignore_errors=True)
             raise RuntimeError(f"Cannot extract {archive.name}: {error}")
 
         family = _archive_family(archive, raw_files)

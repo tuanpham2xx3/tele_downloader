@@ -72,7 +72,7 @@ def upload_job(job) -> tuple[bool, str]:
     command = [
         "rclone", "copy", str(upload_dir), remote,
         "--transfers", "2", "--checkers", "4",
-        "--buffer-size", "16M", "--drive-chunk-size", "8M",
+        "--buffer-size", "64M", "--drive-chunk-size", "128M",
         "--tpslimit", "4", "--tpslimit-burst", "4",
         "--timeout", "2m", "--contimeout", "15s",
         "--retries", "3", "--low-level-retries", "3",

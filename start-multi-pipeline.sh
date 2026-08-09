@@ -95,6 +95,7 @@ if [ -f "$RUNTIME/tdlib.env" ]; then
 fi
 
 "$PYTHON_BIN" -c "import requests, websockets, rich"
+bash "$ROOT/setup-ram-scratch.sh"
 "$PYTHON_BIN" tdlib_backend.py stop
 "$PYTHON_BIN" telegram_media_downloader/clean_runtime_state.py
 "$PYTHON_BIN" tdlib_backend.py start

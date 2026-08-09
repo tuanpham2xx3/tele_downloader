@@ -23,7 +23,7 @@ class DriveUploaderTests(unittest.TestCase):
             ok, error = upload_job(self.make_job(Path(temporary)))
         self.assertTrue(ok, error)
         command = run_rclone.call_args.args[0]
-        self.assertIn("8M", command)
+        self.assertIn("128M", command)
         verify.assert_called_once()
         marker.assert_called_once()
 

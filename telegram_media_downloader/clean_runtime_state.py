@@ -27,6 +27,8 @@ SHM_DIRS = (
     Path("/dev/shm/pipeline_pyrogram_acc3_temp"),
     Path("/dev/shm/pipeline_relay_temp"),
 )
+RAM_SCRATCH_ROOT = Path(os.environ.get("GETURL_RAM_SCRATCH_ROOT", "/mnt/geturl-ram"))
+RAM_SCRATCH_DIRS = (RAM_SCRATCH_ROOT / "extract",)
 TDLIB_DATA = PROJECT_ROOT / ".runtime" / "tdlib" / "data"
 TDLIB_CACHE_NAMES = {
     "animations", "audios", "documents", "photos", "temp",
@@ -114,6 +116,9 @@ def main() -> None:
     if Path("/dev/shm").is_dir():
         for path in SHM_DIRS:
             released += _clean_directory(path, Path("/dev/shm"))
+    if RAM_SCRATCH_ROOT.is_dir():
+        for path in RAM_SCRATCH_DIRS:
+            released += _clean_directory(path, RAM_SCRATCH_ROOT)
 
     runtime = PROJECT_ROOT / ".runtime"
     for suffix in ("", "-shm", "-wal"):
