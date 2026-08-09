@@ -171,10 +171,14 @@ class TdlibClient:
         account_id: int,
         base_url: str = "http://127.0.0.1:8080",
         request_timeout: float = 30.0,
+        admin_username: Optional[str] = None,
+        admin_password: Optional[str] = None,
     ) -> None:
         self.account_id = int(account_id)
         self.base_url = base_url.rstrip("/")
         self.request_timeout = request_timeout
+        self.admin_username = admin_username or os.environ.get("TDLIB_ADMIN_USERNAME")
+        self.admin_password = admin_password or os.environ.get("TDLIB_ADMIN_PASSWORD")
         self._http = requests.Session()
         self._ws: Any = None
         self._receiver: Optional[asyncio.Task] = None
@@ -198,14 +202,44 @@ class TdlibClient:
         *,
         json_body: Optional[Dict[str, Any]] = None,
     ) -> requests.Response:
-        async with self._http_lock:
-            response = await asyncio.to_thread(
-                self._http.request,
+        def send() -> requests.Response:
+            headers: Dict[str, str] = {}
+            csrf_token = self._http.cookies.get("tf_csrf")
+            if method.upper() not in {"GET", "HEAD", "OPTIONS"} and csrf_token:
+                headers["X-CSRF-Token"] = csrf_token
+            return self._http.request(
                 method,
                 f"{self.base_url}{path}",
                 json=json_body,
+                headers=headers,
                 timeout=self.request_timeout,
             )
+
+        async with self._http_lock:
+            response = await asyncio.to_thread(send)
+            if response.status_code == 401 and path != "/auth/login":
+                if not self.admin_username or not self.admin_password:
+                    raise TdlibError(
+                        "telegram-files requires administrator authentication. "
+                        "Set TDLIB_ADMIN_USERNAME and TDLIB_ADMIN_PASSWORD."
+                    )
+                login = await asyncio.to_thread(
+                    self._http.request,
+                    "POST",
+                    f"{self.base_url}/auth/login",
+                    json={
+                        "username": self.admin_username,
+                        "password": self.admin_password,
+                    },
+                    timeout=self.request_timeout,
+                )
+                if login.status_code >= 400:
+                    detail = login.text.strip()[:500]
+                    raise TdlibError(
+                        f"telegram-files administrator login failed "
+                        f"({login.status_code}): {detail}"
+                    )
+                response = await asyncio.to_thread(send)
         if response.status_code >= 400:
             detail = response.text.strip()[:500]
             raise TdlibError(f"{method} {path} failed ({response.status_code}): {detail}")
@@ -493,11 +527,15 @@ class TdlibClient:
 
     async def resume_file_download(self, file_id: int) -> None:
         """Force a gateway download-list item out of its persisted paused state."""
-        await self._request(
-            "POST",
-            f"/{self.account_id}/file/toggle-pause-download",
-            json_body={"fileId": int(file_id), "isPaused": False},
-        )
+        try:
+            await self._request(
+                "POST",
+                f"/{self.account_id}/file/toggle-pause-download",
+                json_body={"fileId": int(file_id), "isPaused": False},
+            )
+        except TdlibError as exc:
+            if "file is downloading" not in str(exc).lower():
+                raise
 
     async def download_message(
         self,

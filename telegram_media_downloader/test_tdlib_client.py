@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 from pathlib import Path
 from unittest.mock import patch
 
+import requests
+
 try:
     from .tdlib_client import TdlibClient, TdlibError, load_account_id, parse_message
 except ImportError:
@@ -132,22 +134,72 @@ class HistoryPaginationTests(unittest.IsolatedAsyncioTestCase):
         }
 
 
+class AdminAuthenticationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_401_logs_in_retries_and_adds_csrf_header(self):
+        client = TdlibClient(1, admin_username="pipeline", admin_password="secret")
+        unauthorized = requests.Response()
+        unauthorized.status_code = 401
+        unauthorized._content = b'{"error":"AUTHENTICATION_REQUIRED"}'
+        login = requests.Response()
+        login.status_code = 200
+        login._content = b'{}'
+        success = requests.Response()
+        success.status_code = 200
+        success._content = b'{}'
+
+        def request(method, url, **kwargs):
+            if url.endswith("/auth/login"):
+                client._http.cookies.set("tf_admin", "admin-token")
+                client._http.cookies.set("tf_csrf", "csrf-token")
+                self.assertNotIn("secret", repr(kwargs.get("headers", {})))
+                return login
+            if not client._http.cookies.get("tf_admin"):
+                return unauthorized
+            self.assertEqual(kwargs["headers"]["X-CSRF-Token"], "csrf-token")
+            return success
+
+        with patch.object(client._http, "request", side_effect=request) as mocked:
+            response = await client._request("POST", "/telegrams/change")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mocked.call_count, 3)
+
+
 class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
     async def test_restart_file_download_cancels_then_resumes(self):
         client = TdlibClient(1)
-        client.call = AsyncMock(side_effect=[{}, {}])
+        message = parse_message(
+            {
+                "id": 148,
+                "chatId": -1001,
+                "date": 10,
+                "content": {
+                    "document": {
+                        "fileName": "restart.zip",
+                        "document": {"id": 48, "size": 1024, "remote": {}},
+                    }
+                },
+            }
+        )
+        client._request = AsyncMock()
         client._file_updates[48] = {"id": 48}
 
         with patch("asyncio.sleep", new=AsyncMock()):
-            await client.restart_file_download(48)
+            await client.restart_file_download(message)
 
         self.assertNotIn(48, client._file_updates)
         self.assertEqual(
-            client.call.await_args_list[0].args,
-            ("CancelDownloadFile", {"fileId": 48, "onlyIfPending": False}),
+            client._request.await_args_list[0].args,
+            ("POST", "/1/file/cancel-download"),
         )
-        self.assertEqual(client.call.await_args_list[1].args[0], "DownloadFile")
-        self.assertEqual(client.call.await_args_list[1].args[1]["priority"], 32)
+        self.assertEqual(
+            client._request.await_args_list[1].args,
+            ("POST", "/1/file/start-download"),
+        )
+        self.assertEqual(
+            client._request.await_args_list[2].args,
+            ("POST", "/1/file/toggle-pause-download"),
+        )
 
     async def test_reuses_complete_destination_without_touching_tdlib(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -269,14 +321,14 @@ class DownloadMessageTests(unittest.IsolatedAsyncioTestCase):
                 },
             }
             client = TdlibClient(1)
-            client.get_file = AsyncMock(side_effect=[active, completed])
+            client.get_file = AsyncMock(side_effect=[active, completed, completed])
             client._request = AsyncMock()
             client.remove_file = AsyncMock()
 
             result = await client.download_message(message, destination, timeout=10)
 
             self.assertEqual(result.read_bytes(), b"resumed-content")
-            client._request.assert_not_awaited()
+            self.assertEqual(client._request.await_count, 3)
             client.remove_file.assert_awaited_once_with(45)
 
     async def test_handles_download_completing_during_start_race(self):
