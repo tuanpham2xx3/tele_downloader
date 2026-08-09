@@ -30,6 +30,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from csv_status_store import claim_status, load_status, update_status
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     from utils.pack_tracker import log_pack_upload, is_pack_already_uploaded, is_course_fully_completed, is_course_partially_in_progress
 except Exception:
@@ -48,12 +51,11 @@ except ImportError:
 
 # Dependency check
 try:
-    from telethon import TelegramClient
-    from telethon.tl.types import MessageMediaDocument, DocumentAttributeFilename
+    from tdlib_client import TdlibClient, TdlibMessage, load_account_id
     from rich.console import Console
     from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
 except ImportError:
-    print("Vui lòng cài đặt dependency: pip install telethon rich python-dotenv")
+    print("Vui long cai dat dependency: pip install rich requests websockets")
     sys.exit(1)
 
 console = Console()
@@ -328,7 +330,7 @@ def start_dispatcher_web_log_server(port: int = 5003):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                html = """<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>🛰️ Dispatcher Log Monitor</title>
+                html = r"""<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>🛰️ Dispatcher Log Monitor</title>
 <style>body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;padding:16px}
 h1{color:#d2a8ff;font-size:18px;margin-bottom:12px}#logs{background:#161b22;padding:14px;border-radius:8px;border:1px solid #30363d;white-space:pre-wrap;height:85vh;overflow-y:auto;font-size:13px;line-height:1.6}
 .SUCCESS{color:#3fb950;font-weight:bold}.WARN{color:#d29922}.ERROR{color:#f85149;font-weight:bold}.INFO{color:#58a6ff}
@@ -431,15 +433,8 @@ def extract_course_title(text: str) -> Optional[str]:
 
 
 def get_file_name(msg) -> Optional[str]:
-    if not getattr(msg, "media", None) or not isinstance(msg.media, MessageMediaDocument):
-        return None
     if getattr(msg, "file", None) and getattr(msg.file, "name", None):
         return str(msg.file.name)
-    doc = getattr(msg.media, "document", None)
-    if doc:
-        for attr in getattr(doc, "attributes", []):
-            if isinstance(attr, DocumentAttributeFilename):
-                return str(attr.file_name)
     return None
 
 
@@ -625,16 +620,25 @@ def rclone_upload(upload_dir: Path, rclone_parent: str, course_title: str) -> bo
     ]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in process.stdout:
-            line_str = line.strip()
-            if line_str and ("Transferred:" in line_str or "ETA" in line_str):
-                log(f"[RClone] {line_str}", "INFO")
+        def stream_rclone_output():
+            if process.stdout is None:
+                return
+            for line in process.stdout:
+                line_str = line.strip()
+                if line_str and ("Transferred:" in line_str or "ETA" in line_str):
+                    log(f"[RClone] {line_str}", "INFO")
+
+        reader = threading.Thread(target=stream_rclone_output, daemon=True)
+        reader.start()
         try:
             process.wait(timeout=1800)
         except subprocess.TimeoutExpired:
             process.kill()
+            process.wait(timeout=10)
             log(f"⚠️ Timeout 30 phút khi Rclone Upload khóa {sanitized_folder}, đã kill tiến trình.", "WARN")
             return False
+        finally:
+            reader.join(timeout=5)
 
         if process.returncode == 0:
             log(f"✔ Đã upload thành công khóa học lên Rclone: {sanitized_folder}", "SUCCESS")
@@ -700,79 +704,12 @@ def check_rclone_folder_exists(rclone_parent: str, course_title: str, force_refr
     return False
 
 
-async def parallel_download_media(client: TelegramClient, msg: Any, save_path: Path, workers: int = 4) -> None:
-    """Tải siêu tốc 4 kết nối DC song song per file (Multi-Worker Parallel Streaming)"""
-    if not hasattr(msg, "media") or not msg.media:
-        await client.download_media(msg, file=str(save_path))
-        return
-
+async def parallel_download_media(client: TdlibClient, msg: TdlibMessage, save_path: Path, workers: int = 4) -> None:
+    """Compatibility wrapper; TDLib owns its native parallel download engine."""
     file_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
-    if file_size < 10 * 1024 * 1024:
-        try:
-            await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
-            return
-        except Exception:
-            await client.download_media(msg, file=str(save_path))
-            return
-
-    try:
-        from telethon.tl.functions.upload import GetFileRequest
-        from telethon.tl.types import InputDocumentFileLocation
-
-        doc = getattr(msg.media, "document", None)
-        if not doc:
-            await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
-            return
-
-        file_location = InputDocumentFileLocation(
-            id=doc.id,
-            access_hash=doc.access_hash,
-            file_reference=doc.file_reference,
-            thumb_size=""
-        )
-
-        part_size = 512 * 1024
-        total_parts = math.ceil(file_size / part_size)
-
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, "wb") as f:
-            f.truncate(file_size)
-
-        queue = asyncio.Queue()
-        for i in range(total_parts):
-            queue.put_nowait(i)
-
-        async def worker_task():
-            while not queue.empty():
-                try:
-                    part_idx = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-                offset = part_idx * part_size
-                limit = min(part_size, file_size - offset)
-                retries = 3
-                for _ in range(retries):
-                    try:
-                        res = await client(GetFileRequest(location=file_location, offset=offset, limit=limit))
-                        if res and res.bytes:
-                            with open(save_path, "r+b") as out_f:
-                                out_f.seek(offset)
-                                out_f.write(res.bytes)
-                            break
-                    except Exception:
-                        await asyncio.sleep(0.5)
-                else:
-                    queue.put_nowait(part_idx)
-                queue.task_done()
-
-        tasks = [asyncio.create_task(worker_task()) for _ in range(min(workers, 4))]
-        await asyncio.gather(*tasks)
-    except Exception:
-        try:
-            await client.download_file(msg.media, file=str(save_path), part_size_kb=512)
-        except Exception:
-            await client.download_media(msg, file=str(save_path))
+    size_mb = file_size / 1024 / 1024 if file_size else 0.0
+    timeout = min(max(int(size_mb / 0.15), 1800), 28800)
+    await client.download_message(msg, save_path, timeout=timeout, stall_timeout=300)
 
 
 # ==========================================
@@ -790,18 +727,28 @@ async def forward_course_to_relay(client: Any, relay_group_id: int, course_title
       3. Gửi '##COURSE_END##'
     """
     try:
-        relay_entity = await client.get_entity(relay_group_id)
-        # Gửi sentinel bắt đầu
-        await client.send_message(relay_entity, f"{SENTINEL_PREFIX} {course_title}")
-        # Forward từng file
-        for fname, msg in files:
-            try:
-                await client.forward_messages(relay_entity, msg)
-                await asyncio.sleep(0.5)  # Tránh spam flood
-            except Exception as e:
-                log(f"  - ⚠️ Cảnh báo forward file {fname}: {e}", "WARN")
+        await client.send_text(relay_group_id, f"{SENTINEL_PREFIX} {course_title}")
+        source_chat_ids = {int(msg.chat_id) for _, msg in files}
+        if len(source_chat_ids) != 1:
+            raise ValueError(f"Course spans multiple source chats: {source_chat_ids}")
+        source_chat_id = source_chat_ids.pop()
+        forwarded_count = 0
+        message_ids = [int(msg.id) for _, msg in files]
+        for offset in range(0, len(message_ids), 50):
+            chunk = message_ids[offset : offset + 50]
+            forwarded = await client.forward_messages(
+                relay_group_id, source_chat_id, chunk
+            )
+            if len(forwarded) != len(chunk):
+                raise RuntimeError(
+                    f"Forwarded {len(forwarded)}/{len(chunk)} messages in batch"
+                )
+            forwarded_count += len(forwarded)
+            await asyncio.sleep(0.5)
+        if forwarded_count != len(files):
+            raise RuntimeError(f"Forwarded {forwarded_count}/{len(files)} files")
         # Gửi sentinel kết thúc
-        await client.send_message(relay_entity, SENTINEL_END)
+        await client.send_text(relay_group_id, SENTINEL_END)
         log(f"  - ✔ Đã forward {len(files)} file của [{course_title}] sang relay group {relay_group_id}", "SUCCESS")
         return True
     except Exception as e:
@@ -844,55 +791,30 @@ async def main():
     csv_status = load_csv_status()
 
     # Lấy Telegram Credentials
-    api_id_val = os.environ.get("TELERECON_API_ID")
-    api_hash_val = os.environ.get("TELERECON_API_HASH")
-    phone_val = os.environ.get("TELERECON_PHONE")
+    project_root = BASE_DIR.parent
+    account_id = load_account_id("acc1", project_root)
+    tdlib_base_url = os.environ.get("TDLIB_BASE_URL", "http://127.0.0.1:8080")
+    client = TdlibClient(account_id, tdlib_base_url)
+    await client.connect()
 
-    if not api_id_val or not api_hash_val:
-        # Thử đọc từ config.yaml
-        config_yaml = BASE_DIR / "config.yaml"
-        if config_yaml.exists() and yaml is not None:
-            with open(config_yaml, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                if data.get("api_id") and str(data.get("api_id")) != "your_api_id":
-                    api_id_val = str(data.get("api_id"))
-                    api_hash_val = str(data.get("api_hash"))
-
-    if not api_id_val or not api_hash_val or api_id_val == "your_api_id" or api_id_val == "2040":
-        api_id_val = "21724"
-        api_hash_val = "3e0fe5dadb9b1612e3e5b6d912b72449"
-
-    persistent_sess = Path.home() / ".telegram_sessions" / "pyrogram"
-    if (Path.home() / ".telegram_sessions" / "pyrogram.session").exists():
-        session_path = str(persistent_sess)
-    else:
-        session_path = str(BASE_DIR / "pyrogram.session")
-    client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
-
-    if phone_val:
-        await client.start(phone=phone_val)
-    else:
-        await client.start()
-
-    me = await client.get_me()
-    name = getattr(me, "first_name", "User") or "User"
-    user_handle = getattr(me, "username", None) or getattr(me, "id", "")
+    me = await client.call("GetMe")
+    name = me.get("firstName") or "User"
+    user_handle = (me.get("usernames") or {}).get("activeUsernames", [account_id])
+    user_handle = user_handle[0] if user_handle else account_id
     log(f"Đã kết nối Telegram Account: {name} (@{user_handle})", "SUCCESS")
 
-    entity = await client.get_entity(args.chat)
+    entity = await client.resolve_chat(args.chat)
 
     # ------------------------------------------
     # BƯỚC 1 & 2: LOAD MESSAGES & DETECT COURSES
     # ------------------------------------------
     log(f"BƯỚC 1 & 2: Load toàn bộ tin nhắn từ bot {args.chat} & Phân cụm bài đăng...", "INFO")
-    messages = []
-    async for msg in client.iter_messages(entity, limit=3000, reverse=True):
-        messages.append(msg)
+    messages = await client.get_history(entity, limit=3000, reverse=True)
 
     courses_map: List[Tuple[str, List[Tuple[str, Any]]]] = []
     current_title = None
     current_files = []
-    allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02")
+    allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf")
 
     for msg in messages:
         msg_text = getattr(msg, "text", "") or ""
@@ -905,7 +827,8 @@ async def main():
             continue
 
         fname = get_file_name(msg)
-        if fname and fname.lower().endswith(allowed_exts) and current_title:
+        split_volume = bool(fname and re.search(r"(?:\.\d{3}|\.z\d+)$", fname, re.I))
+        if fname and (fname.lower().endswith(allowed_exts) or split_volume) and current_title:
             current_files.append((fname, msg))
 
     if current_title and current_files:
@@ -1130,11 +1053,26 @@ async def main():
                                 elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
                                     raise asyncio.TimeoutError(f"Stalled 5min")
 
-                        wd_task = asyncio.create_task(watchdog())
+                        last_report = [0.0]
+
+                        def report_progress(downloaded: int, total: int, speed: float):
+                            now = asyncio.get_event_loop().time()
+                            if now - last_report[0] >= 30 or downloaded >= total:
+                                last_report[0] = now
+                                log(
+                                    f"  - TDLib [{filename}] {downloaded/1024/1024:.1f}MB/"
+                                    f"{total/1024/1024:.1f}MB @ {speed/1024/1024:.1f}MB/s",
+                                    "INFO",
+                                )
+
+                        wd_task = None
                         try:
-                            await asyncio.wait_for(
-                                client.download_media(msg, file=str(save_path)),
-                                timeout=dl_timeout
+                            await client.download_message(
+                                msg,
+                                save_path,
+                                timeout=dl_timeout,
+                                stall_timeout=STALL_TIMEOUT,
+                                progress=report_progress,
                             )
                             file_downloaded = True
                             break
@@ -1152,13 +1090,13 @@ async def main():
                         except Exception as e:
                             log(f"  - ⚠️ Lỗi kết nối khi tải {filename} (Lần {attempt}/{max_retries}): {e}", "WARN")
                             try:
-                                if not getattr(client, "is_connected", True):
-                                    await client.connect()
+                                await client.reconnect()
                             except Exception:
                                 pass
                             await asyncio.sleep(5)
                         finally:
-                            wd_task.cancel()
+                            if wd_task:
+                                wd_task.cancel()
 
                     if file_downloaded:
                         log(f"  - ✔ Tải xong file {filename} ({size_mb:.1f} MB)", "SUCCESS")
@@ -1171,6 +1109,9 @@ async def main():
                 await asyncio.wait_for(asyncio.gather(*tasks), timeout=21600)
             except asyncio.TimeoutError:
                 log(f"✘ TIMEOUT 6h toàn khóa {course_title}, dừng xử lý.", "ERROR")
+                download_success = False
+            except Exception as exc:
+                log(f"✘ Lỗi ngoài dự kiến khi tải khóa {course_title}: {exc}", "ERROR")
                 download_success = False
 
             if not download_success:
@@ -1235,7 +1176,7 @@ async def main():
     log("\n==========================================", "SUCCESS")
     log("🏁 QUY TRÌNH ĐÃ XỬ LÝ XONG TẤT CẢ CÁC KHÓA HỌC!", "SUCCESS")
     log("==========================================", "SUCCESS")
-    await client.disconnect()
+    await client.close()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only health monitor for the native Windows Telegram pipelines."""
+"""Read-only health monitor for native Windows and Linux TDLib pipelines."""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from csv_status_store import load_status
 
 ROOT = Path(__file__).resolve().parent
 RUNTIME = ROOT / ".runtime"
-STATE_PATH = RUNTIME / "windows-pipelines.json"
+STATE_PATH = RUNTIME / "pipeline-state.json"
 CSV_PATH = ROOT / "telegram_media_downloader" / "full_hoahoc.csv"
-MONITOR_LOG = RUNTIME / "windows-monitor.log"
-ALERT_LOG = RUNTIME / "windows-monitor-alerts.log"
+MONITOR_LOG = RUNTIME / "pipeline-monitor.log"
+ALERT_LOG = RUNTIME / "pipeline-monitor-alerts.log"
 INTERVAL_SECONDS = 30
 STALL_SECONDS = 15 * 60
 
@@ -166,7 +166,15 @@ def get_memory_free_gb() -> float:
         ]
 
     if os.name != "nt":
-        return 0.0
+        try:
+            values = {}
+            with open("/proc/meminfo", "r", encoding="ascii") as handle:
+                for line in handle:
+                    key, value = line.split(":", 1)
+                    values[key] = int(value.strip().split()[0])
+            return values.get("MemAvailable", values.get("MemFree", 0)) / 1024**2
+        except (OSError, ValueError):
+            return 0.0
     status = MemoryStatus()
     status.dwLength = ctypes.sizeof(MemoryStatus)
     ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
@@ -175,7 +183,7 @@ def get_memory_free_gb() -> float:
 
 def monitor_loop() -> None:
     offsets: Dict[str, int] = {}
-    write_line("Windows pipeline monitor started (read-only, interval=30s).")
+    write_line("Native TDLib pipeline monitor started (read-only, interval=30s).")
 
     for _ in range(20):
         if any(entry.get("Name") in LOG_FILES for entry in load_pipeline_state()):
@@ -193,7 +201,10 @@ def monitor_loop() -> None:
             return
 
         alerts: List[str] = []
-        statuses = []
+        tdlib_up = port_listening(8080)
+        statuses = [f"tdlib={'UP' if tdlib_up else 'DOWN'}"]
+        if not tdlib_up:
+            alerts.append("TDLib backend unhealthy: port8080=False")
         for name, port in (("acc1", 5000), ("acc2", 5001), ("acc3", 5002)):
             entry = pipelines.get(name)
             alive = bool(entry and process_alive(int(entry.get("Pid", 0))))

@@ -30,11 +30,13 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from csv_status_store import claim_status, load_status, update_status
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 try:
-    from telethon import TelegramClient, events
-    from telethon.tl.types import MessageMediaDocument, DocumentAttributeFilename
+    from tdlib_client import TdlibClient, TdlibMessage, load_account_id
 except ImportError:
-    print("Vui lòng cài đặt: pip install telethon")
+    print("Vui long cai dat: pip install requests websockets")
     sys.exit(1)
 
 BASE_DIR = Path(__file__).parent
@@ -178,13 +180,17 @@ def sanitize_name(name: str) -> str:
     return clean[:120] if clean else "Unassigned_Course"
 
 def get_file_name(msg: Any) -> Optional[str]:
-    if not msg.media:
-        return None
-    if hasattr(msg.media, "document") and msg.media.document:
-        for attr in msg.media.document.attributes:
-            if isinstance(attr, DocumentAttributeFilename):
-                return attr.file_name
-    return None
+    file_obj = getattr(msg, "file", None)
+    return str(file_obj.name) if file_obj and file_obj.name else None
+
+
+def is_supported_file(filename: Optional[str]) -> bool:
+    if not filename:
+        return False
+    allowed = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf")
+    return filename.lower().endswith(allowed) or bool(
+        re.search(r"(?:\.\d{3}|\.z\d+)$", filename, re.I)
+    )
 
 def is_non_header_split_volume(filename: str) -> bool:
     """
@@ -330,11 +336,25 @@ def repackage_and_upload(course_dir: Path, upload_dir: Path, rclone_parent: str,
     ]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in process.stdout:
-            line_str = line.strip()
-            if line_str and ("Transferred:" in line_str or "ETA" in line_str):
-                log(f"[RClone] {line_str}", "INFO")
-        process.wait()
+        def stream_rclone_output():
+            if process.stdout is None:
+                return
+            for line in process.stdout:
+                line_str = line.strip()
+                if line_str and ("Transferred:" in line_str or "ETA" in line_str):
+                    log(f"[RClone] {line_str}", "INFO")
+
+        reader = threading.Thread(target=stream_rclone_output, daemon=True)
+        reader.start()
+        try:
+            process.wait(timeout=1800)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+            log(f"⚠️ Timeout 30 phút khi Rclone Upload khóa {sanitized_folder}, đã kill tiến trình.", "WARN")
+            return False
+        finally:
+            reader.join(timeout=5)
         if process.returncode == 0:
             log(f"✔ Upload thành công: {sanitized_folder}", "SUCCESS")
             return True
@@ -366,7 +386,13 @@ def update_csv_status(title: str, status: str):
     update_status(CSV_PATH, title, status, normalize_title)
 
 
-async def relay_fast_download(client: Any, msg: Any, save_path: Path) -> bool:
+async def relay_fast_download(
+    client: TdlibClient,
+    msg: TdlibMessage,
+    save_path: Path,
+    timeout: float,
+    progress=None,
+) -> bool:
     if not hasattr(msg, "media") or not msg.media:
         return False
     expected_size = getattr(msg.file, "size", 0) if getattr(msg, "file", None) else 0
@@ -374,9 +400,15 @@ async def relay_fast_download(client: Any, msg: Any, save_path: Path) -> bool:
     save_path.unlink(missing_ok=True)
 
     try:
-        result = await client.download_media(msg, file=str(save_path))
-        if not result or not save_path.exists():
-            raise IOError(f"Telethon did not create the target file: {save_path}")
+        await client.download_message(
+            msg,
+            save_path,
+            timeout=timeout,
+            stall_timeout=300,
+            progress=progress,
+        )
+        if not save_path.exists():
+            raise IOError(f"TDLib did not create the target file: {save_path}")
 
         actual_size = save_path.stat().st_size
         if expected_size and actual_size != expected_size:
@@ -426,8 +458,6 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
 
     log(f"\n▶ [RELAY] Bắt đầu xử lý khóa: {course_title}", "SUCCESS", log_path)
 
-    allowed_exts = (".rar", ".zip", ".7z", ".mp4", ".mkv", ".pdf", ".001", ".002", ".z01", ".z02")
-
     # Ước lượng dung lượng chuẩn thực tế (chỉ tính 1.05x dung lượng file)
     total_mb = sum(
         getattr(m.file, "size", 0) / 1024 / 1024
@@ -458,7 +488,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     sem = asyncio.Semaphore(max_dl)
     log(f"[RELAY] Tải cuốn chiếu 1 file / Acc bứt tốc ({'RAM Disk Siêu Tốc' if is_ram else 'Disk'})", "INFO", log_path)
 
-    header_msgs = [m for m in msgs if get_file_name(m) and get_file_name(m).lower().endswith(allowed_exts) and not is_non_header_split_volume(get_file_name(m))]
+    header_msgs = [m for m in msgs if is_supported_file(get_file_name(m)) and not is_non_header_split_volume(get_file_name(m))]
     total_packs = max(len(header_msgs), 1)
     batch_counter = [0]
     pack_lock = asyncio.Lock()
@@ -466,7 +496,7 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
     async def dl_file(msg: Any):
         nonlocal download_success
         fname = get_file_name(msg)
-        if not fname or not fname.lower().endswith(allowed_exts):
+        if not is_supported_file(fname):
             return
         save_path = archives_dir / fname
         if is_pack_already_uploaded and is_pack_already_uploaded(course_title, fname, rclone_parent):
@@ -496,11 +526,27 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                         elif asyncio.get_event_loop().time() - last_progress_time[0] > STALL_TIMEOUT:
                             raise asyncio.TimeoutError("Stalled 5min")
 
-                wd_task = asyncio.ensure_future(watchdog())
+                last_report = [0.0]
+
+                def report_progress(downloaded: int, total: int, speed: float):
+                    now = asyncio.get_event_loop().time()
+                    if now - last_report[0] >= 30 or downloaded >= total:
+                        last_report[0] = now
+                        log(
+                            f"  - TDLib [{fname}] {downloaded/1024/1024:.1f}MB/"
+                            f"{total/1024/1024:.1f}MB @ {speed/1024/1024:.1f}MB/s",
+                            "INFO",
+                            log_path,
+                        )
+
+                wd_task = None
                 try:
-                    await asyncio.wait_for(
-                        relay_fast_download(client, msg, save_path),
-                        timeout=dl_timeout
+                    await relay_fast_download(
+                        client,
+                        msg,
+                        save_path,
+                        timeout=dl_timeout,
+                        progress=report_progress,
                     )
                     file_downloaded = True
                     break
@@ -518,13 +564,13 @@ async def process_course_batch(client: Any, course_title: str, msgs: List[Any],
                 except Exception as e:
                     log(f"  - ⚠️ [RELAY] Lỗi kết nối khi tải {fname} (Lần {attempt}/{max_retries}): {e}", "WARN", log_path)
                     try:
-                        if not getattr(client, "is_connected", True):
-                            await client.connect()
+                        await client.reconnect()
                     except Exception:
                         pass
                     await asyncio.sleep(5)
                 finally:
-                    wd_task.cancel()
+                    if wd_task:
+                        wd_task.cancel()
 
             if file_downloaded:
                 log(f"  - ✔ [RELAY] Tải xong file {fname} ({size_mb:.1f} MB)", "SUCCESS", log_path)
@@ -595,47 +641,21 @@ async def main():
     start_web_log_server(args.port)
     log(f"🚀 Relay Pipeline khởi động | Session: {args.session} | Group: {args.group}", "SUCCESS", log_path)
 
-    # Telegram credentials
-    api_id_val   = os.environ.get("TELERECON_API_ID", "21724")
-    api_hash_val = os.environ.get("TELERECON_API_HASH", "3e0fe5dadb9b1612e3e5b6d912b72449")
-    if api_id_val == "2040":
-        api_id_val = "21724"
-        api_hash_val = "3e0fe5dadb9b1612e3e5b6d912b72449"
     sess_name = args.session
     if sess_name.endswith(".session"):
         sess_name = sess_name[:-8]
-
-    persistent_path = Path.home() / ".telegram_sessions" / f"{sess_name}.session"
-    if persistent_path.exists():
-        session_path = str(Path.home() / ".telegram_sessions" / sess_name)
-    elif (BASE_DIR.parent / "telegram_media_downloader" / f"{sess_name}.session").exists():
-        session_path = str(BASE_DIR.parent / "telegram_media_downloader" / sess_name)
-    elif (BASE_DIR / "telegram_media_downloader" / f"{sess_name}.session").exists():
-        session_path = str(BASE_DIR / "telegram_media_downloader" / sess_name)
-    else:
-        session_path = str(BASE_DIR / sess_name)
-
-    # Các lỗi MTProto nghiêm trọng cần reconnect hoàn toàn
-    FATAL_MTPROTO_KEYWORDS = [
-        "too many messages had to be ignored",
-        "server closed the connection",
-        "connection reset",
-        "broken pipe",
-        "bad message",
-        "security error",
-        "0 bytes read",
-    ]
-
-    def is_fatal_mtproto_error(e: Exception) -> bool:
-        msg = str(e).lower()
-        return any(kw in msg for kw in FATAL_MTPROTO_KEYWORDS)
+    role = "acc2" if "acc2" in sess_name.lower() else "acc3"
+    account_id = load_account_id(role, BASE_DIR.parent)
+    tdlib_base_url = os.environ.get("TDLIB_BASE_URL", "http://127.0.0.1:8080")
 
     processing_queue: asyncio.Queue = asyncio.Queue()
 
     async def queue_processor():
         while True:
+            queue_item = None
             try:
-                course_title, msgs = await asyncio.wait_for(processing_queue.get(), timeout=60)
+                queue_item = await asyncio.wait_for(processing_queue.get(), timeout=60)
+                course_title, msgs = queue_item
                 log(f"[QUEUE] 🔄 Bắt đầu xử lý từ queue: {course_title}", "INFO", log_path)
                 # client có thể bị thay thế, dùng biến nonlocal
                 # Timeout toàn bộ quá trình xử lý 1 khóa: 8 giờ
@@ -650,6 +670,9 @@ async def main():
                 pass  # queue rỗng, tiếp tục chờ
             except Exception as e:
                 log(f"⚠️ Lỗi trong queue processor: {e}", "WARN", log_path)
+            finally:
+                if queue_item is not None:
+                    processing_queue.task_done()
 
     client_holder = [None]
     retry_delay = 5
@@ -659,29 +682,21 @@ async def main():
 
     while True:
         try:
-            client = TelegramClient(session_path, int(api_id_val), str(api_hash_val))
+            client = TdlibClient(account_id, tdlib_base_url)
             client_holder[0] = client
             await client.connect()
-            if not await client.is_user_authorized():
-                log(f"🔴 [ERROR] Session [{args.session}] chưa đăng nhập hoặc hết hạn!", "ERROR", log_path)
-                log(f"👉 Vui lòng chạy lệnh sau trên terminal để đăng nhập: python3 login.py {args.session}", "WARN", log_path)
-                await client.disconnect()
-                break
-
-            await client.start()
-            me = await client.get_me()
-            log(f"✔ Đã kết nối: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', getattr(me, 'id', ''))})", "SUCCESS", log_path)
+            me = await client.call("GetMe")
+            display_name = me.get("firstName") or role
+            log(f"✔ Đã kết nối TDLib: {display_name} ({account_id})", "SUCCESS", log_path)
             retry_delay = 5
 
-            relay_group = await client.get_entity(args.group)
+            relay_group = await client.resolve_chat(args.group)
 
             # -------------------------------------------------------------
             # BƯỚC 1: QUÉT LỊCH SỬ NHÓM ĐỂ LẤY TOÀN BỘ KHÓA ĐÃ FORWARD TỪ TRƯỚC
             # -------------------------------------------------------------
             log(f"[RELAY] 🔍 Quét lịch sử relay group {args.group} để tìm khóa học chưa hoàn thành...", "INFO", log_path)
-            history_msgs = []
-            async for hmsg in client.iter_messages(relay_group, limit=4000, reverse=True):
-                history_msgs.append(hmsg)
+            history_msgs = await client.get_history(relay_group, limit=4000, reverse=True)
 
             # Phân cụm các khóa học từ lịch sử
             history_courses: List[Tuple[str, List[Any]]] = []
@@ -742,45 +757,42 @@ async def main():
             # BƯỚC 2: LẮNG NGHE TIN NHẮN MỚI REALTIME
             # -------------------------------------------------------------
             pending_batch: dict = {}
+            history_cursor = max((message.id for message in history_msgs), default=0)
+            log(f"[RELAY] TDLib polling relay group {args.group} every 2s...", "INFO", log_path)
 
-            @client.on(events.NewMessage(chats=relay_group))
-            async def handler(event):
-                msg = event.message
+            async for msg in client.iter_new_messages(
+                relay_group, after_message_id=history_cursor, poll_interval=2.0
+            ):
                 text = getattr(msg, "text", "") or ""
 
                 if text.startswith(SENTINEL_PREFIX):
                     course_title = text[len(SENTINEL_PREFIX):].strip()
                     pending_batch["current"] = {"title": course_title, "msgs": []}
                     log(f"[RELAY] 📥 Nhận khóa mới: {course_title}", "INFO", log_path)
-                    return
+                    continue
 
                 if text.strip() == SENTINEL_END:
                     batch = pending_batch.pop("current", None)
                     if batch and batch["msgs"]:
                         await processing_queue.put((batch["title"], batch["msgs"]))
                         log(f"[RELAY] ➕ Đã thêm [{batch['title']}] ({len(batch['msgs'])} file) vào hàng đợi!", "SUCCESS", log_path)
-                    return
+                    continue
 
                 if "current" in pending_batch and msg.media:
                     pending_batch["current"]["msgs"].append(msg)
 
             log(f"[RELAY] ⏳ Đang lắng nghe relay group {args.group} liên tục...", "INFO", log_path)
-            await client.run_until_disconnected()
+            raise ConnectionError("TDLib message polling stopped")
 
         except KeyboardInterrupt:
             log("🛑 Dừng theo yêu cầu người dùng.", "INFO", log_path)
             break
         except Exception as e:
-            if is_fatal_mtproto_error(e):
-                log(f"🔴 Lỗi MTProto nghiêm trọng: {e}", "ERROR", log_path)
-                log(f"♻️ Tạo lại TelegramClient hoàn toàn sau {retry_delay}s...", "WARN", log_path)
-            else:
-                log(f"⚠️ Gián đoạn kết nối ({e}), kết nối lại sau {retry_delay}s...", "WARN", log_path)
+            log(f"TDLib interrupted ({e}); reconnecting after {retry_delay}s...", "WARN", log_path)
 
-            # Đóng client cũ hoàn toàn
             try:
-                if client_holder[0] and client_holder[0].is_connected():
-                    await client_holder[0].disconnect()
+                if client_holder[0]:
+                    await client_holder[0].close()
             except Exception:
                 pass
 

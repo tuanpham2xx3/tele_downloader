@@ -1,0 +1,5 @@
+{
+  "acc1": {"id": 111111111, "name": "master"},
+  "acc2": {"id": 222222222, "name": "relay-2"},
+  "acc3": {"id": 333333333, "name": "relay-3"}
+}

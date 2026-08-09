@@ -14,8 +14,11 @@ $pipelineScript = Join-Path $projectRoot "telegram_media_downloader\course_pipel
 $relayScript = Join-Path $projectRoot "telegram_media_downloader\relay_pipeline.py"
 $recoveryScript = Join-Path $projectRoot "telegram_media_downloader\recover_pipeline_state.py"
 $monitorScript = Join-Path $projectRoot "monitor_windows.py"
+$backendManager = Join-Path $projectRoot "tdlib_backend.py"
 $runtimeDir = Join-Path $projectRoot ".runtime"
-$statePath = Join-Path $runtimeDir "windows-pipelines.json"
+$statePath = Join-Path $runtimeDir "pipeline-state.json"
+$legacyStatePath = Join-Path $runtimeDir "windows-pipelines.json"
+$accountRegistry = Join-Path $runtimeDir "tdlib-accounts.json"
 $credentialPath = Join-Path $projectRoot ".telerecon-credentials.xml"
 
 $definitions = @(
@@ -25,12 +28,13 @@ $definitions = @(
 )
 
 function Get-SavedState {
-    if (-not (Test-Path -LiteralPath $statePath)) { return @() }
+    $sourcePath = if (Test-Path -LiteralPath $statePath) { $statePath } elseif (Test-Path -LiteralPath $legacyStatePath) { $legacyStatePath } else { $null }
+    if (-not $sourcePath) { return @() }
     try {
-        return @(Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json)
+        return @(Get-Content -Raw -LiteralPath $sourcePath | ConvertFrom-Json)
     }
     catch {
-        Write-Warning "State file is invalid; treating it as empty: $statePath"
+        Write-Warning "State file is invalid; treating it as empty: $sourcePath"
         return @()
     }
 }
@@ -43,6 +47,7 @@ function Get-ManagedProcess([object]$Entry) {
 }
 
 function Show-Status {
+    & $pythonPath $backendManager status
     $saved = Get-SavedState
     $rows = foreach ($definition in $definitions) {
         $entry = $saved | Where-Object Name -eq $definition.Name | Select-Object -First 1
@@ -79,6 +84,8 @@ function Stop-Pipelines {
         }
     }
     Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $legacyStatePath -Force -ErrorAction SilentlyContinue
+    & $pythonPath $backendManager stop
     Write-Host "Native Windows pipelines stopped." -ForegroundColor Green
 }
 
@@ -96,7 +103,7 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Python virtual environment not found: $pythonPath"
 }
 
-foreach ($requiredFile in @($pipelineScript, $relayScript, $recoveryScript, $monitorScript)) {
+foreach ($requiredFile in @($pipelineScript, $relayScript, $recoveryScript, $monitorScript, $backendManager)) {
     if (-not (Test-Path -LiteralPath $requiredFile)) {
         throw "Required script not found: $requiredFile"
     }
@@ -107,11 +114,18 @@ if ($active.Count -gt 0) {
     throw "One or more managed pipelines are already running. Use -Action Status or -Action Stop first."
 }
 
-foreach ($sessionName in @("pyrogram", "pyrogram_acc2", "pyrogram_acc3")) {
-    $repoSession = Join-Path $projectRoot "telegram_media_downloader\$sessionName.session"
-    $userSession = Join-Path (Join-Path $HOME ".telegram_sessions") "$sessionName.session"
-    if (-not (Test-Path -LiteralPath $repoSession) -and -not (Test-Path -LiteralPath $userSession)) {
-        throw "Telegram session not found: $sessionName.session"
+& $pythonPath $backendManager start
+if ($LASTEXITCODE -ne 0) {
+    throw "TDLib backend failed to start. Run .\setup-tdlib.ps1 first."
+}
+
+if (-not (Test-Path -LiteralPath $accountRegistry)) {
+    throw "TDLib account registry not found. Run: $pythonPath tdlib_admin.py login acc1"
+}
+$registry = Get-Content -LiteralPath $accountRegistry -Raw | ConvertFrom-Json
+foreach ($role in @("acc1", "acc2", "acc3")) {
+    if (-not $registry.$role.id) {
+        throw "TDLib account $role is not configured. Run: $pythonPath tdlib_admin.py login $role"
     }
 }
 
@@ -141,9 +155,9 @@ if (-not $sevenZip) {
     }
 }
 
-& $pythonPath -c "import rich, telethon" 2>$null
+& $pythonPath -c "import rich, requests, websockets" 2>$null
 if ($LASTEXITCODE -ne 0) {
-    throw "Python dependencies are incomplete. Required modules: telethon, rich."
+    throw "Python dependencies are incomplete. Required modules: rich, requests, websockets."
 }
 
 $oldApiId = $env:TELERECON_API_ID
@@ -205,7 +219,7 @@ try {
         Start-Sleep -Seconds 1
     }
 
-    $started | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
+    $started | Where-Object Name -ne "monitor" | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
     Start-Sleep -Seconds 5
 
     $dead = @($started | Where-Object { -not (Get-ManagedProcess $_) })
@@ -213,7 +227,7 @@ try {
         throw "Pipeline startup failed: $($dead.Name -join ', '). Check .runtime/*.stderr.log"
     }
 
-    Write-Host "Three Telegram accounts are running natively on Windows." -ForegroundColor Green
+    Write-Host "Three TDLib accounts are running natively on Windows." -ForegroundColor Green
     Write-Host "Dashboard: http://localhost:5000" -ForegroundColor Cyan
     Show-Status
 }

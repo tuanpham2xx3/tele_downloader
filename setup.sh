@@ -1,214 +1,41 @@
 #!/usr/bin/env bash
-# setup.sh - Cài đặt môi trường và login Telegram từ đầu sau khi ONA reset
-set +e
+set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-ok()   { echo -e "${GREEN}[OK]${NC}    $1"; }
-info() { echo -e "${CYAN}[INFO]${NC}  $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC}  $1"; }
-err()  { echo -e "${RED}[ERROR]${NC} $1"; }
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
 
-PYTHON_BIN="python3"
-if [ -f "./.venv/bin/python" ]; then PYTHON_BIN="./.venv/bin/python"; fi
-
-echo ""
-echo "=================================================="
-echo "  🔧 SETUP - SAU KHI ONA RESET"
-echo "=================================================="
-
-# ── BƯỚC 0: Tự động chuyển vào đúng thư mục dự án ─────
-REPO_URL="https://github.com/tuanpham2xx3/tele_downloader.git"
-
-if [ -d "telegram_media_downloader" ]; then
-    info "Đang ở trong thư mục dự án: $(pwd)"
-elif [ -d "tele_downloader/telegram_media_downloader" ]; then
-    cd tele_downloader
-    info "Đã chuyển vào thư mục: $(pwd)"
-elif [ -d "app/telegram_media_downloader" ]; then
-    cd app
-    info "Đã chuyển vào thư mục: $(pwd)"
-else
-    info "Không tìm thấy thư mục dự án. Tiến hành clone $REPO_URL..."
-    git clone $REPO_URL tele_downloader
-    cd tele_downloader
-    info "Đã clone và chuyển vào: $(pwd)"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required." >&2
+    exit 2
 fi
 
-mkdir -p telegram_media_downloader
-
-# ── BƯỚC 1: Pull code (Bảo vệ file session không bị Git đè) ──
-info "Pull code mới nhất từ GitHub..."
-if git rev-parse --is-inside-work-tree &>/dev/null; then
-    # Tự động lưu các file .session hiện có sang /tmp trước khi đè code
-    mkdir -p /tmp/sess_backup
-    cp telegram_media_downloader/*.session /tmp/sess_backup/ 2>/dev/null || true
-
-    git fetch origin main 2>/dev/null || true
-    git reset --hard origin/main 2>/dev/null || true
-    git pull origin main 2>/dev/null || true
-
-    # Khôi phục các file .session vừa lưu
-    cp /tmp/sess_backup/*.session telegram_media_downloader/ 2>/dev/null || true
-    ok "Code cập nhật xong (đã bảo vệ session)"
-else
-    warn "Không phải git repository, bỏ qua git pull."
+if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y python3-venv python3-pip git curl unzip p7zip-full rclone
 fi
 
-# ── BƯỚC 2: Cài dependencies ─────────────────────────
-info "Cài Python dependencies..."
-$PYTHON_BIN -m pip install -q --upgrade telethon rich python-dotenv
-ok "Dependencies OK"
-
-# ── BƯỚC 2.5: Mở rộng RAM Disk lên 10GB ────────────────
-info "Mở rộng RAM disk /dev/shm lên 10GB..."
-sudo mount -o remount,size=10G /dev/shm 2>/dev/null || true
-if [ ! -d "/mnt/ramdisk" ]; then
-    sudo mkdir -p /mnt/ramdisk 2>/dev/null || true
-    sudo mount -t tmpfs -o size=10G tmpfs /mnt/ramdisk 2>/dev/null || true
-    sudo chmod 777 /mnt/ramdisk 2>/dev/null || true
+if [ ! -x "$ROOT/.venv/bin/python" ]; then
+    python3 -m venv "$ROOT/.venv"
 fi
-ok "RAM Disk 10GB OK"
+PYTHON_BIN="$ROOT/.venv/bin/python"
+"$PYTHON_BIN" -m pip install --upgrade pip
+"$PYTHON_BIN" -m pip install rich requests==2.32.3 websockets==15.0.1 PyYAML
 
-# ── BƯỚC 3: Cài 7z/unrar & Rclone ──────────────────────
-if ! command -v 7z &>/dev/null; then
-    info "Cài 7z/unrar..."
-    sudo rm -f /etc/apt/sources.list.d/yarn.list || true
-    sudo apt-get update -qq
-    sudo apt-get install -y p7zip-full p7zip-rar unrar -qq
-    ok "7z/unrar OK"
-fi
+bash "$ROOT/setup-tdlib.sh"
+"$PYTHON_BIN" "$ROOT/tdlib_backend.py" start
 
-if ! command -v rclone &>/dev/null; then
-    info "Cài đặt Rclone..."
-    sudo apt-get update -qq
-    sudo apt-get install -y rclone -qq || curl -sL https://rclone.org/install.sh | sudo bash || true
-    ok "Rclone OK"
-fi
-
-# ── BƯỚC 4: Tải cloudflared & khôi phục rclone.conf ────
-if [ ! -f "./cloudflared" ]; then
-    info "Tải cloudflared..."
-    curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-    chmod +x cloudflared
-    ok "cloudflared OK"
-fi
-
-# Tự động khôi phục rclone.conf nếu chưa có
-mkdir -p ~/.config/rclone
-if [ -f "./rclone.conf" ] && [ ! -f ~/.config/rclone/rclone.conf ]; then
-    cp ./rclone.conf ~/.config/rclone/rclone.conf
-    ok "Đã khôi phục rclone.conf từ repo ✔"
-elif [ -f ~/.config/rclone/rclone.conf ]; then
-    ok "rclone.conf đã sẵn sàng ✔"
-else
-    # Auto-restore base64 fallback token từ máy cá nhân
-    info "Đang tự động khôi phục rclone.conf từ bản mã hóa..."
-    echo "W2dkcml2ZV0KdHlwZSA9IGRyaXZlCnRva2VuID0geyJhY2Nlc3NfdG9rZW4iOiJ5YTI5LmEwQVJHbnUwWVN0VWZtRjZNLTdaZnhudXJGdXJMRnRKd0FqUUZPdzRoNkdGY1FILWdQRFBoU1dxLTlEMmVrelBRcFBBR0RnaW0yMExaU1pxTFY0TFZXTjNrZC1EVllZVnUweXl3S2pWUDVEN2ZFa2Y3dlUwLVFCdTNOSzl2M3dtNktQaUZtejVQYnBzZkRpc0IyRE9zazhHRi1zOGZWdVZSWTFmZHJ0NC02MDdLWTgycnFCTEwwcjVvbGREZUNROWdaWVBZdl9jSWFDZ1lLQVlZU0FSTVNGUUhHWDJNaWRUZHpQR0RDRnRHSERDclFfVXljUGcwMjA2IiwidG9rZW5fdHlwZSI6IkJlYXJlciIsInJlZnJlc2hfdG9rZW4iOiIxLy8wZ2puOEJRejdpdFhRQ2dZSUFSQUFHQkFTTndGLUw5SXIwQUo5X3Bzd19NS3Q1V21NOHcwazBsSTMzMzVRRjFvQU03MFYtdjgtYzlJRWUwX3I2STlRWFduVmZ2cG5CMHJPQVp3IiwiZXhwaXJ5IjoiMjAyNi0wOC0wOFQwMjoyMDoxMy43NTYzMTg5KzA3OjAwIiwiZXhwaXJlc19pbiI6MzU5OX0Kc2NvcGUgPSBkcml2ZQoKW2dldGxpbmtdCnR5cGUgPSBkcml2ZQp0b2tlbiA9IHsiYWNjZXNzX3Rva2VuIjoieWEyOS5hMEFSR251MGFmeF9BdERsWDQtX25DM3M1VmwwT1M1ZVNpMDZ2TFViR2lNcWMyeFM2Rmo1aG5hVmdpd0w3a3B1b2ZMMGlSX3dMSUZ2dE9tX0s0UFJFYldkNzhXdUNFbDBHNnNaVGhXVHQwR25keUpYb2plYV9fcFoxazkwRXpPS1NKcVJXbjJZekpER1hBdUx4enVIOE5fTUZVcGhfRmJxN2JSM0dfenIzRmxjcjB4RGUxcmxvUnRkeHgzeEVxUDBsaUxOTkx0V1NPQ2dhQ2dZS0FmRVNBUlVTRlFIR1gyTWlrODczSy1DdVl6TWtpeTg4LUF2WHF3MDIwOSIsInRva2VuX3R5cGUiOiJCZWFyZXIiLCJyZWZyZXNoX3Rva2VuIjoiMS8vMGVXNmo4RHZFVlByUkNnWUlBUkFBR0E0U053Ri1MOUlyaTJNWVctNm9UcFI5eVRSQlYxZ1lNckRHampPd3VVSHdRakhiUzA2M3hGZVViZjU5a2NwVVZxMmxmZXFrOVpSMUp5RSIsImV4cGlyeSI6IjIwMjYtMDgtMDhUMDI6MTc6MjQuMjk4NzQ5NCswNzowMCIsImV4cGlyZXNfaW4iOjM1OTl9CnNjb3BlID0gZHJpdmUK" | base64 -d > ~/.config/rclone/rclone.conf 2>/dev/null || true
-    if [ -f ~/.config/rclone/rclone.conf ]; then
-        ok "Đã tự động khôi phục rclone.conf (gdrive & getlink) ✔"
-    else
-        warn "Thiếu rclone.conf! Hãy nạp cấu hình rclone."
-    fi
-fi
-
-# ── BƯỚC 5: Kiểm tra session file ───────────────────
-echo ""
-echo "=================================================="
-echo "  📋 TRẠNG THÁI SESSION FILE (BẢO VỆ NGOÀI GIT)"
-echo "=================================================="
-mkdir -p ~/.telegram_sessions
-cp telegram_media_downloader/*.session ~/.telegram_sessions/ 2>/dev/null || true
-cp ~/.telegram_sessions/*.session telegram_media_downloader/ 2>/dev/null || true
-
-SESSIONS=("pyrogram" "pyrogram_acc2" "pyrogram_acc3")
-NAMES=("Acc 1 (Master)" "Acc 2 (Relay)" "Acc 3 (Relay)")
-MISSING=()
-
-for i in "${!SESSIONS[@]}"; do
-    sess="${SESSIONS[$i]}"
-    name="${NAMES[$i]}"
-    f="telegram_media_downloader/${sess}.session"
-
-    # Kiểm tra xem session có thực sự đăng nhập hợp lệ không (ưu tiên đọc ~/.telegram_sessions)
-    IS_AUTH=$($PYTHON_BIN -c "
-import asyncio, os
+for role in acc1 acc2 acc3; do
+    if ! ROLE="$role" "$PYTHON_BIN" - <<'PY'
+import os
 from pathlib import Path
-from telethon import TelegramClient
-async def test():
-    api_id = int(os.environ.get('TELERECON_API_ID', '21724'))
-    api_hash = os.environ.get('TELERECON_API_HASH', '3e0fe5dadb9b1612e3e5b6d912b72449')
-    sp = Path.home() / '.telegram_sessions' / '${sess}'
-    if not (Path.home() / '.telegram_sessions' / '${sess}.session').exists():
-        sp = 'telegram_media_downloader/${sess}'
-    c = TelegramClient(str(sp), api_id, api_hash)
-    await c.connect()
-    auth = await c.is_user_authorized()
-    await c.disconnect()
-    print('1' if auth else '0')
-try:
-    asyncio.run(test())
-except Exception:
-    print('0')
-" 2>/dev/null || echo "0")
-
-    if [ "$IS_AUTH" = "1" ]; then
-        size=$(du -h "$f" 2>/dev/null | cut -f1 || echo "0K")
-        ok "$name: $f ($size) ✔"
-    else
-        rm -f "$f" 2>/dev/null || true
-        err "$name: Hết hạn / Chưa đăng nhập - cần login lại"
-        MISSING+=("$i")
+from telegram_media_downloader.tdlib_client import load_account_id
+load_account_id(os.environ['ROLE'], Path.cwd())
+PY
+    then
+        echo "Login TDLib account for $role"
+        "$PYTHON_BIN" "$ROOT/tdlib_admin.py" login "$role"
     fi
 done
 
-# ── BƯỚC 6: Login lại các acc bị mất session ────────
-if [ ${#MISSING[@]} -gt 0 ]; then
-    echo ""
-    echo "=================================================="
-    echo "  🔐 LOGIN TELEGRAM"
-    echo "=================================================="
-    warn "Cần login lại ${#MISSING[@]} tài khoản. Chuẩn bị OTP trên điện thoại!"
-    echo ""
-
-    for i in "${MISSING[@]}"; do
-        sess="${SESSIONS[$i]}"
-        name="${NAMES[$i]}"
-        echo -e "${CYAN}━━━ Login $name (session: $sess) ━━━${NC}"
-        if [ -t 0 ]; then
-            $PYTHON_BIN login.py "$sess"
-        else
-            $PYTHON_BIN login.py "$sess" < /dev/tty
-        fi
-        echo ""
-    done
-else
-    ok "Tất cả session đã có, không cần login lại!"
-fi
-
-# ── BƯỚC 7: Kiểm tra lại sau login ──────────────────
-echo ""
-echo "=================================================="
-echo "  ✅ KẾT QUẢ"
-echo "=================================================="
-ALL_OK=true
-for i in "${!SESSIONS[@]}"; do
-    sess="${SESSIONS[$i]}"
-    name="${NAMES[$i]}"
-    f="telegram_media_downloader/${sess}.session"
-    if [ -f "$f" ]; then
-        ok "$name: READY ✔"
-    else
-        err "$name: VẪN THIẾU! Chạy lại: bash setup.sh"
-        ALL_OK=false
-    fi
-done
-
-echo ""
-if $ALL_OK; then
-    ok "Môi trường sẵn sàng! Chạy pipeline:"
-    echo ""
-    echo "  ./start-multi-pipeline.sh"
-    echo ""
-else
-    warn "Một số account chưa login xong. Chạy lại: bash setup.sh"
-fi
+echo "TDLib environment and all three accounts are ready."
+echo "Start: ./start-multi-pipeline.sh start"
