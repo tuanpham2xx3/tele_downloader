@@ -51,12 +51,12 @@ stop_one() {
 
 if [ "$ACTION" = "status" ]; then
     "$PYTHON_BIN" tdlib_backend.py status || true
-    for name in acc1 acc2 acc3 monitor; do status_one "$name"; done
+    for name in acc1 acc2 acc3 monitor dashboard; do status_one "$name"; done
     exit 0
 fi
 
 if [ "$ACTION" = "stop" ]; then
-    for name in monitor acc3 acc2 acc1; do stop_one "$name"; done
+    for name in dashboard monitor acc3 acc2 acc1; do stop_one "$name"; done
     rm -f "$STATE"
     "$PYTHON_BIN" tdlib_backend.py stop
     echo "Native TDLib pipelines stopped."
@@ -68,7 +68,7 @@ if [ "$ACTION" != "start" ]; then
     exit 2
 fi
 
-for name in acc1 acc2 acc3 monitor; do
+for name in acc1 acc2 acc3 monitor dashboard; do
     if [ -f "$PID_DIR/$name.pid" ] && alive "$(cat "$PID_DIR/$name.pid")"; then
         echo "$name is already running; use '$0 status' or '$0 stop'." >&2
         exit 2
@@ -92,7 +92,7 @@ PY
 command -v rclone >/dev/null 2>&1 || { echo "rclone is required" >&2; exit 2; }
 command -v 7z >/dev/null 2>&1 || { echo "7z is required (apt install p7zip-full)" >&2; exit 2; }
 
-for port in 5000 5001 5002 5003; do
+for port in 5000 5001 5002 5003 8386; do
     if command -v lsof >/dev/null 2>&1 && lsof -ti "tcp:$port" >/dev/null 2>&1; then
         echo "Port $port is already in use." >&2
         exit 2
@@ -142,9 +142,14 @@ nohup "$PYTHON_BIN" -u monitor_windows.py \
 MONITOR_PID=$!
 echo "$MONITOR_PID" > "$PID_DIR/monitor.pid"
 
+WEB_PORT=8386 nohup "$PYTHON_BIN" -u webserver.py \
+    >> "$RUNTIME/dashboard.stdout.log" 2>> "$RUNTIME/dashboard.stderr.log" &
+DASHBOARD_PID=$!
+echo "$DASHBOARD_PID" > "$PID_DIR/dashboard.pid"
+
 sleep 5
 failed=0
-for name in acc1 acc2 acc3 monitor; do
+for name in acc1 acc2 acc3 monitor dashboard; do
     pid="$(cat "$PID_DIR/$name.pid")"
     if ! alive "$pid"; then
         echo "$name failed to start; check .runtime logs." >&2
@@ -154,5 +159,5 @@ done
 [ "$failed" -eq 0 ] || exit 1
 
 echo "Three TDLib accounts are running natively on Ubuntu."
-echo "Dashboard: http://127.0.0.1:5000"
-"$0" status
+echo "Dashboard: http://127.0.0.1:8386"
+bash "$0" status

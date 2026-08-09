@@ -13,10 +13,10 @@ from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 BASE_DIR = Path(__file__).parent
-PORT     = int(os.environ.get("WEB_PORT", 5000))
+PORT     = int(os.environ.get("WEB_PORT", 8386))
 
 LOG_FILES = {
-    "acc1":       BASE_DIR / "pipeline_acc1.log",
+    "acc1":       BASE_DIR / ".runtime" / "pipeline_acc1.stdout.log",
     "acc2":       BASE_DIR / "pipeline_acc2.log",
     "acc3":       BASE_DIR / "pipeline_acc3.log",
     "dispatcher": BASE_DIR / "pipeline_dispatcher.log",
@@ -147,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
                     pass
             self.send_text(json.dumps(rows, ensure_ascii=False), "application/json; charset=utf-8")
         elif p == "/api/pack_tracker":
-            json_p = BASE_DIR / "upload_pack_tracker.json"
+            json_p = BASE_DIR / "telegram_media_downloader" / "utils" / "upload_pack_tracker.json"
             rows = []
             if json_p.exists():
                 try:
