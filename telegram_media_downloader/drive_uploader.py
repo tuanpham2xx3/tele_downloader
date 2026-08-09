@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -53,10 +54,20 @@ def _verify(source: Path, remote: str) -> tuple[bool, str]:
         return False, "rclone check timed out after 3600s"
 
 
+def refresh_upload_mtimes(upload_dir: Path) -> None:
+    """Make Drive show this upload time instead of Telegram's old file dates."""
+    uploaded_at = time.time()
+    paths = sorted(upload_dir.rglob("*"), key=lambda path: len(path.parts), reverse=True)
+    for path in [*paths, upload_dir]:
+        if not path.is_symlink():
+            os.utime(path, (uploaded_at, uploaded_at))
+
+
 def upload_job(job) -> tuple[bool, str]:
     upload_dir = job.course_dir / "upload"
     if not upload_dir.is_dir() or not any(upload_dir.iterdir()):
         return False, f"upload directory is empty: {upload_dir}"
+    refresh_upload_mtimes(upload_dir)
     remote = f"{job.rclone_parent.rstrip('/')}/{sanitize_name(job.title)}"
     command = [
         "rclone", "copy", str(upload_dir), remote,

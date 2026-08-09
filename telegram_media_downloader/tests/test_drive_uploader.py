@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from telegram_media_downloader.drive_uploader import upload_job
+from telegram_media_downloader.drive_uploader import refresh_upload_mtimes, upload_job
 from telegram_media_downloader.upload_queue import UploadJob
 
 
@@ -18,14 +18,29 @@ class DriveUploaderTests(unittest.TestCase):
     @patch("telegram_media_downloader.drive_uploader.mark_remote_complete", return_value=True)
     @patch("telegram_media_downloader.drive_uploader._verify", return_value=(True, ""))
     @patch("telegram_media_downloader.drive_uploader.run_rclone_with_watchdog", return_value=True)
-    def test_upload_uses_512m_and_marks_only_after_verify(self, run_rclone, verify, marker):
+    def test_upload_uses_configured_chunk_and_marks_only_after_verify(self, run_rclone, verify, marker):
         with tempfile.TemporaryDirectory() as temporary:
             ok, error = upload_job(self.make_job(Path(temporary)))
         self.assertTrue(ok, error)
         command = run_rclone.call_args.args[0]
-        self.assertIn("512M", command)
+        self.assertIn("8M", command)
         verify.assert_called_once()
         marker.assert_called_once()
+
+    @patch("telegram_media_downloader.drive_uploader.time.time", return_value=2_000_000_000)
+    def test_refresh_upload_mtimes_replaces_old_file_and_directory_dates(self, _time):
+        with tempfile.TemporaryDirectory() as temporary:
+            upload = Path(temporary) / "upload"
+            nested = upload / "section"
+            nested.mkdir(parents=True)
+            video = nested / "video.mp4"
+            video.write_bytes(b"video")
+
+            refresh_upload_mtimes(upload)
+
+            self.assertEqual(video.stat().st_mtime, 2_000_000_000)
+            self.assertEqual(nested.stat().st_mtime, 2_000_000_000)
+            self.assertEqual(upload.stat().st_mtime, 2_000_000_000)
 
     @patch("telegram_media_downloader.drive_uploader.mark_remote_complete")
     @patch("telegram_media_downloader.drive_uploader._verify", return_value=(False, "mismatch"))
