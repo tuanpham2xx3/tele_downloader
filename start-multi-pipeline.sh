@@ -8,6 +8,8 @@ PID_DIR="$RUNTIME/pids"
 STATE="$RUNTIME/pipeline-state.json"
 ACTION="${1:-start}"
 RCLONE_DEST="${RCLONE_PARENT_FOLDER:-gdrive,root_folder_id=1-kq-gQkiCMcaTNmkFU5NBS3X0uiq5KX-:}"
+UPLOAD_REMOTES="${GETURL_UPLOAD_REMOTES:-gdrive}"
+OWNER_REMOTE="${GETURL_OWNER_REMOTE:-gdrive}"
 RELAY_GROUP_ACC2="${RELAY_GROUP_ACC2:--5040203514}"
 RELAY_GROUP_ACC3="${RELAY_GROUP_ACC3:--5281140814}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
@@ -127,6 +129,7 @@ PROCESSOR_PID=$!
 echo "$PROCESSOR_PID" > "$PID_DIR/processor.pid"
 
 nohup "$PYTHON_BIN" -u telegram_media_downloader/drive_uploader.py \
+    --remotes "$UPLOAD_REMOTES" --owner-remote "$OWNER_REMOTE" \
     >> "$RUNTIME/uploader.stdout.log" 2>> "$RUNTIME/uploader.stderr.log" &
 UPLOADER_PID=$!
 echo "$UPLOADER_PID" > "$PID_DIR/uploader.pid"

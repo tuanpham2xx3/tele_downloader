@@ -35,6 +35,35 @@ class UploadQueueTests(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertIsNone(second)
 
+    def test_uploader_claim_is_pinned_to_the_first_remote(self):
+        job = self.queue.enqueue_downloaded(
+            title="Course", normalized_title="course", owner="acc1",
+            course_dir=self.temp.name, rclone_parent="gdrive:",
+        )
+        self.queue.set_status(job.id, READY_UPLOAD)
+        claimed = self.queue.claim_for_uploader((READY_UPLOAD,), UPLOADING, "helper1")
+        self.assertEqual(claimed.upload_remote, "helper1")
+        self.queue.set_status(job.id, READY_UPLOAD)
+        self.assertIsNone(
+            self.queue.claim_for_uploader((READY_UPLOAD,), UPLOADING, "helper2")
+        )
+        self.assertEqual(
+            self.queue.claim_for_uploader((READY_UPLOAD,), UPLOADING, "helper1").id,
+            job.id,
+        )
+
+    def test_inactive_uploader_assignment_can_be_released(self):
+        job = self.queue.enqueue_downloaded(
+            title="Course", normalized_title="course", owner="acc1",
+            course_dir=self.temp.name, rclone_parent="gdrive:",
+        )
+        self.queue.set_status(job.id, READY_UPLOAD)
+        self.queue.claim_for_uploader((READY_UPLOAD,), UPLOADING, "old-helper")
+        self.queue.set_status(job.id, READY_UPLOAD)
+        self.assertEqual(self.queue.release_inactive_upload_remotes(("gdrive",)), 1)
+        claimed = self.queue.claim_for_uploader((READY_UPLOAD,), UPLOADING, "gdrive")
+        self.assertEqual(claimed.id, job.id)
+
     def test_recover_inflight(self):
         one = self.queue.enqueue_downloaded(title="One", normalized_title="one", owner="acc1",
                                             course_dir=self.temp.name, rclone_parent="gdrive:")

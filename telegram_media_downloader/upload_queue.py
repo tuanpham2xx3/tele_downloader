@@ -47,6 +47,7 @@ class UploadJob:
     attempts: int
     next_retry_at: float
     error: str
+    upload_remote: str = ""
 
 
 class UploadQueue:
@@ -85,6 +86,14 @@ class UploadQueue:
                     ON upload_jobs(status, next_retry_at, updated_at);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(upload_jobs)").fetchall()
+            }
+            if "upload_remote" not in columns:
+                connection.execute(
+                    "ALTER TABLE upload_jobs ADD COLUMN upload_remote TEXT NOT NULL DEFAULT ''"
+                )
 
     @staticmethod
     def _job(row: sqlite3.Row | None) -> Optional[UploadJob]:
@@ -96,7 +105,7 @@ class UploadQueue:
             course_dir=Path(str(row["course_dir"])),
             rclone_parent=str(row["rclone_parent"]), status=str(row["status"]),
             attempts=int(row["attempts"]), next_retry_at=float(row["next_retry_at"]),
-            error=str(row["error"]),
+            error=str(row["error"]), upload_remote=str(row["upload_remote"]),
         )
 
     def enqueue_downloaded(
@@ -116,7 +125,7 @@ class UploadQueue:
                     title=excluded.title, owner=excluded.owner,
                     course_dir=excluded.course_dir, rclone_parent=excluded.rclone_parent,
                     status=excluded.status, attempts=0, next_retry_at=0,
-                    error='', updated_at=excluded.updated_at
+                    error='', upload_remote='', updated_at=excluded.updated_at
                 """,
                 (title, normalized_title, owner, absolute_dir, rclone_parent,
                  DOWNLOADED, now, now),
@@ -160,6 +169,63 @@ class UploadQueue:
             raise
         finally:
             connection.close()
+
+    def claim_for_uploader(
+        self, statuses: Iterable[str], claimed_status: str, upload_remote: str,
+    ) -> Optional[UploadJob]:
+        """Claim one upload while keeping every retry pinned to the same remote."""
+        values = tuple(statuses)
+        if not values:
+            return None
+        remote = upload_remote.strip()
+        if not remote:
+            raise ValueError("upload_remote is required")
+        now = time.time()
+        placeholders = ",".join("?" for _ in values)
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                f"""SELECT * FROM upload_jobs
+                    WHERE status IN ({placeholders}) AND next_retry_at <= ?
+                      AND (upload_remote='' OR upload_remote=?)
+                    ORDER BY updated_at, id LIMIT 1""",
+                (*values, now, remote),
+            ).fetchone()
+            if row is None:
+                connection.commit()
+                return None
+            connection.execute(
+                """UPDATE upload_jobs
+                   SET status=?, upload_remote=?, updated_at=? WHERE id=?""",
+                (claimed_status, remote, now, row["id"]),
+            )
+            updated = connection.execute(
+                "SELECT * FROM upload_jobs WHERE id=?", (row["id"],)
+            ).fetchone()
+            connection.commit()
+            return self._job(updated)
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def release_inactive_upload_remotes(self, active_remotes: Iterable[str]) -> int:
+        """Make queued work claimable when an uploader account is removed."""
+        active = tuple(remote.strip() for remote in active_remotes if remote.strip())
+        if not active:
+            return 0
+        placeholders = ",".join("?" for _ in active)
+        now = time.time()
+        with closing(self._connect()) as connection, connection:
+            changed = connection.execute(
+                f"""UPDATE upload_jobs SET upload_remote='', next_retry_at=0, updated_at=?
+                    WHERE status IN (?, ?) AND upload_remote<>''
+                      AND upload_remote NOT IN ({placeholders})""",
+                (now, READY_UPLOAD, RETRY_UPLOAD, *active),
+            ).rowcount
+        return int(changed)
 
     def set_status(
         self, job_id: int, status: str, *, error: str = "",
