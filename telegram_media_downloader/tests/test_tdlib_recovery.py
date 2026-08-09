@@ -19,13 +19,19 @@ class TdlibRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
         await client.restart_file_download(message)
 
-        first, second = client._request.await_args_list
+        first, second, third = client._request.await_args_list
         self.assertEqual(first.args[:2], ("POST", "/123/file/cancel-download"))
         self.assertEqual(first.kwargs["json_body"], {"fileId": 42})
         self.assertEqual(second.args[:2], ("POST", "/123/file/start-download"))
         self.assertEqual(
             second.kwargs["json_body"],
             {"chatId": -789, "messageId": 456, "fileId": 42},
+        )
+        self.assertEqual(
+            third.args[:2], ("POST", "/123/file/toggle-pause-download")
+        )
+        self.assertEqual(
+            third.kwargs["json_body"], {"fileId": 42, "isPaused": False}
         )
 
 

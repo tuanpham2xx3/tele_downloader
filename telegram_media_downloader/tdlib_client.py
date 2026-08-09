@@ -489,6 +489,15 @@ class TdlibClient:
                 "fileId": file_id,
             },
         )
+        await self.resume_file_download(file_id)
+
+    async def resume_file_download(self, file_id: int) -> None:
+        """Force a gateway download-list item out of its persisted paused state."""
+        await self._request(
+            "POST",
+            f"/{self.account_id}/file/toggle-pause-download",
+            json_body={"fileId": int(file_id), "isPaused": False},
+        )
 
     async def download_message(
         self,
@@ -527,6 +536,7 @@ class TdlibClient:
                         "fileId": int(message.file.id),
                     },
                 )
+                await self.resume_file_download(message.file.id)
             except TdlibError as exc:
                 # The backend may restore an in-flight TDLib transfer between
                 # GetFile and start-download, or the transfer may complete in
