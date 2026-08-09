@@ -28,6 +28,8 @@ class DriveUploaderTests(unittest.TestCase):
         self.assertTrue(ok, error)
         command = run_rclone.call_args.args[0]
         self.assertIn("128M", command)
+        self.assertIn("--size-only", command)
+        self.assertIn("--no-update-modtime", command)
         verify.assert_called_once()
         marker.assert_called_once()
 

@@ -20,6 +20,7 @@ _ONE_LINE_TRANSFERRED_RE = re.compile(
     r"\s-\s+([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?i?B)\s*/",
     re.IGNORECASE,
 )
+_CHECKED_RE = re.compile(r"\(chk#([0-9]+)(?:/[0-9]+)?\)", re.IGNORECASE)
 _UNIT_FACTORS = {
     "B": 1,
     "KB": 1000,
@@ -43,6 +44,12 @@ def parse_transferred_bytes(line: str) -> Optional[int]:
     if not match:
         return None
     return int(float(match.group(1)) * _UNIT_FACTORS[match.group(2).upper()])
+
+
+def parse_checked_count(line: str) -> Optional[int]:
+    """Return rclone's completed check count from a one-line stats record."""
+    match = _CHECKED_RE.search(line)
+    return int(match.group(1)) if match else None
 
 
 def _stop_process(process: subprocess.Popen) -> None:
@@ -86,6 +93,7 @@ def run_rclone_with_watchdog(
         reader.start()
         last_progress = time.monotonic()
         highest_transferred = -1
+        highest_checked = -1
         output_finished = False
         idle_killed = False
 
@@ -99,6 +107,10 @@ def run_rclone_with_watchdog(
                     transferred = parse_transferred_bytes(line)
                     if transferred is not None and transferred > highest_transferred:
                         highest_transferred = transferred
+                        last_progress = time.monotonic()
+                    checked = parse_checked_count(line)
+                    if checked is not None and checked > highest_checked:
+                        highest_checked = checked
                         last_progress = time.monotonic()
             except queue.Empty:
                 pass

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from telegram_media_downloader.rclone_watchdog import (
+    parse_checked_count,
     parse_transferred_bytes,
     remote_folder_exists,
     remote_has_completion_marker,
@@ -9,6 +10,12 @@ from telegram_media_downloader.rclone_watchdog import (
 
 
 class ParseTransferredBytesTests(unittest.TestCase):
+    def test_parses_check_progress(self):
+        self.assertEqual(
+            parse_checked_count("0 B / 0 B, -, 0 B/s, ETA - (chk#9/14)"), 9
+        )
+        self.assertIsNone(parse_checked_count("0 B / 0 B, -, 0 B/s, ETA -"))
+
     def test_parses_binary_units(self):
         self.assertEqual(
             parse_transferred_bytes("Transferred: 2.997 GiB / 25.628 GiB, 12%"),

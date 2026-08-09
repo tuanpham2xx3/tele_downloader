@@ -83,6 +83,7 @@ def upload_job(
     command = [
         "rclone", "copy", str(upload_dir), remote,
         "--transfers", "2", "--checkers", "4",
+        "--size-only", "--no-update-modtime",
         "--buffer-size", "64M", "--drive-chunk-size", "128M",
         "--tpslimit", "4", "--tpslimit-burst", "4",
         "--timeout", "2m", "--contimeout", "15s",
@@ -92,10 +93,10 @@ def upload_job(
     log(f"Uploading [{job.title}] via [{uploader}] -> {remote}")
     copied = run_rclone_with_watchdog(
         command, on_output=lambda line: log(line), on_warning=lambda line: log(line, "WARN"),
-        idle_timeout=60, max_attempts=3, retry_delay=15,
+        idle_timeout=300, max_attempts=3, retry_delay=15,
     )
     if not copied:
-        return False, "rclone copy failed or made no byte progress for 60 seconds"
+        return False, "rclone copy failed or made no file/byte progress for 5 minutes"
     log(f"Verifying [{job.title}] through [{uploader}]")
     verified, detail = _verify(upload_dir, remote)
     if not verified:
